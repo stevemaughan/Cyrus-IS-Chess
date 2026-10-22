@@ -1,6 +1,6 @@
 # Plan: fixes from the code review
 
-Response to `docs/Code Review.md` (review of commit `edd2df5`). Every finding was checked against the source, and every runtime finding was reproduced with the current ReleaseSafe build, using a probe script whose cases are to be folded into `tools/scripts/uci_stress.py`. All ten findings are genuine. Two need an owner decision on the exact behaviour (§3).
+Response to `docs/CODE_REVIEW.md` (review of commit `edd2df5`). Every finding was checked against the source, and every runtime finding was reproduced with the current ReleaseSafe build, using a probe script whose cases are to be folded into `tools/scripts/uci_stress.py`. All ten findings are genuine. Two need an owner decision on the exact behaviour (§3).
 
 None of the fixes touches the evaluation, move generation or move ordering. Two touch what the search sees:
 - **CR-02:** the extended list capacity that DEV-009 promised.

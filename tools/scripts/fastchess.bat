@@ -9,12 +9,16 @@ REM  Examples:
 REM      fastchess.bat                     -> tc 1+0.01, 500 rounds, conc 4
 REM      fastchess.bat 0.5+0 1000 8 30     -> bullet without increment
 REM      fastchess.bat 10+0.1 200 8 30     -> blitz
-REM  FASTCHESS_DIR overrides the folder holding fastchess.exe and UHO.pgn.
+REM  Set FASTCHESS_DIR to the folder holding fastchess.exe and UHO.pgn, e.g.
+REM      setx FASTCHESS_DIR "C:\Chess\FastChess"
 REM ===========================================================================
 setlocal
 cd /d "%~dp0..\.."
 
-if "%FASTCHESS_DIR%"=="" set FASTCHESS_DIR=C:\Users\steve\Dropbox\Chess\Development\FastChess
+if "%FASTCHESS_DIR%"=="" (
+  echo Set FASTCHESS_DIR to the folder holding fastchess.exe and UHO.pgn.
+  exit /b 1
+)
 set FC=%FASTCHESS_DIR%\fastchess.exe
 set ENG=%CD%\zig-out-safe\bin\cyrus.exe
 

@@ -1,3 +1,11 @@
+# Text is stored with LF in the repository, whatever the platform.
+* text=auto eol=lf
+
+# Windows scripts keep CRLF in the working tree.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Reference images, binaries and compressed goldens: never converted.
 *.tzx binary
 *.tap binary
 *.bin binary
@@ -6,3 +14,5 @@
 *.szx binary
 *.pdf binary
 *.gz binary
+*.png binary
+*.jpg binary

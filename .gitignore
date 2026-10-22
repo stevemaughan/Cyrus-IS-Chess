@@ -1,14 +1,36 @@
+# --- Zig build output and caches
 .zig-cache/
 zig-cache/
 zig-out/
-*.pyc
-__pycache__/
-tools/research/*/work/
+zig-out-*/
+
+# --- Generated locally, never committed
 # golden files are committed gzip-compressed only
 tests/golden/*.jsonl
-
-# Claude Code session files
-.claude/
-zig-out-safe/
-zig-out-safe2/
+# research scripts' scratch snapshots
+tools/research/*/work/
+# fastchess runs (tools/scripts/fastchess.bat)
 fastchess-out/
+*.log
+
+# --- Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Editors and tools
+.claude/
+.vscode/
+.vs/
+.idea/
+*.swp
+*~
+
+# --- Operating system and Dropbox
+Thumbs.db
+desktop.ini
+.DS_Store
+.dropbox
+.dropbox.attr
+*conflicted copy*
