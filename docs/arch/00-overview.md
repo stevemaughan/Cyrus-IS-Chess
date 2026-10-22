@@ -54,7 +54,7 @@ Reference snapshots: `reference/snapshots/cyrus48-entry-6000.z80` (entry point) 
 - **`$BD00 + sq`** holds 0 if the square is empty, otherwise a **piece code**:
   - bit 7 = **White**;
   - bit 2 is always set;
-  - `code & $7B` is the record offset in page `$BE`.
+  - `code & $FB` (bit 2 cleared, colour kept) is the record offset in page `$BE`.
 - **Piece records**, 8 bytes each, slot order K, Q, R, R, B, B, N, N, then pawns a–h. Slot offsets are `$00 $08 $10 $18 $20 $28 $30 $38 $40–$78`.
 
   | Byte | Meaning |

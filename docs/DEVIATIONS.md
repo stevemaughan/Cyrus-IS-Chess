@@ -43,7 +43,7 @@ Every behavioural difference between the Zig port and the original 48K Cyrus IS 
 ## DEV-005: Root legality filter
 - **Class:** B. **Status:** planned.
 - **Original:** the move generator is pseudo-legal. The root's static scoring (`$7B96`) gives illegal moves score 0, including castling through an attacked square via the king-on-transit-square trick in make (`$81EA`). This was confirmed in Phase 2 (`docs/OPEN_QUESTIONS.md`, resolved). The only illegal move observed is DEV-002's book move. Any path that still yields an illegal `bestmove` must not reach the GUI.
-- **Fix:** AGENTS.md §8.2. Filter the root list with a full legality test before the search, and add a final legality assertion on `bestmove`. Every occurrence found in testing gets its own DEV entry identifying the cause.
+- **Fix (as built):** `src/legal.zig` is an independent legality test. It agrees with the original's root scoring on all 133,648 root moves of the 4,028 search-golden positions, so a separate root filter would never act. The engine therefore checks `bestmove` and, if it were ever illegal, falls back to the first legal root move in the original's order (`src/engine.zig`). A reported PV is cut at its first illegal move: selective plies can contain illegal replies while in check. Every occurrence found in testing gets its own DEV entry identifying the cause.
 - **Behaviour change where the original worked:** none, if the original's own root scoring already rejects every illegal move. This is to be confirmed in Phase 4.
 
 ## DEV-006: Random sources
@@ -56,6 +56,12 @@ Every behavioural difference between the Zig port and the original 48K Cyrus IS 
 - **Class:** platform adaptation. **Status:** planned.
 - **Original:** a key press sets `$BD4C` bit 7 at the next node entry (`$78BA`).
 - **Fix:** UCI `stop`, an exhausted time budget or `go nodes` sets the same flag at the same point. Everything after that is unchanged.
+
+## DEV-012: A move is returned where the original declares a draw
+- **Class:** B (missing move). **Status:** implemented.
+- **Original:** the main loop declares DRAWN before Cyrus thinks when the reversal counter `$BD5E` reaches 6, or the 50-move counter `$BD0A` reaches 100 ($60F6). No move is made.
+- **Fix:** UCI leaves draw claims to the GUI and requires a `bestmove`, so the engine searches as usual. The search itself is unchanged: inside the search the original still treats a repetition at the root as a draw (`$7D04`).
+- **Behaviour change where the original worked:** none in positions the original would search.
 
 ## DEV-008: Extended mode (any depth, iterative deepening)
 - **Class:** E, approved extension (owner, 2026-10-21). **Status:** planned.

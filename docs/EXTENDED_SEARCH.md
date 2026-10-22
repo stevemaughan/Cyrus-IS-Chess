@@ -73,7 +73,8 @@ else:
 ```
 
 **Control:**
-- **Between passes:** start the next pass only if `elapsed + predicted(next) ≤ soft`. Here `predicted(next)` = duration(last pass) × the larger of (the ratio of the last two passes, 3), and before two passes exist, 0.
+- **Between passes:** start the next pass only if `elapsed + predicted(next) ≤ soft`. Here `predicted(next)` = duration(last pass) × the larger of (the ratio of the last two passes, 3), and before two passes exist, 0. The D = 2 pre-pass is not used for the prediction.
+- **`movetime`:** the whole time is granted. Passes keep starting while time remains, and the hard limit ends the last one (as-built change, approved 2026-10-22: the prediction rule alone stopped a 1 s `movetime` search after 34 ms).
 - **Within a pass:** at each node entry (the `$78BA` poll point) check the stop flag and, every 1,024 nodes, the clock. If `elapsed ≥ hard` or `stop` was received, set `$BD4C` bit 7 (DEV-007). The search then unwinds exactly as after a key press.
 - **Single legal root move:** play it after pass 1, unless `go infinite`, `ponder` or a depth/nodes/mate limit asks for more.
 - **Book move:** played immediately (the original returns from the pass at once).

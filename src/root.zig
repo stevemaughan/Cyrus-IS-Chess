@@ -14,6 +14,12 @@ pub const search = @import("search.zig");
 pub const game = @import("game.zig");
 pub const timeman = @import("timeman.zig");
 pub const uci_parse = @import("uci_parse.zig");
+pub const driver = @import("driver.zig");
+pub const info = @import("info.zig");
+pub const legal = @import("legal.zig");
+pub const rng = @import("rng.zig");
+pub const engine = @import("engine.zig");
+pub const uci = @import("uci.zig");
 
 test {
     _ = state;
@@ -29,5 +35,11 @@ test {
     _ = game;
     _ = timeman;
     _ = uci_parse;
+    _ = driver;
+    _ = info;
+    _ = legal;
+    _ = rng;
+    _ = engine;
+    _ = uci;
     _ = @import("golden.zig");
 }

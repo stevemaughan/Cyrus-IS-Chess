@@ -6,3 +6,6 @@ __pycache__/
 tools/research/*/work/
 # golden files are committed gzip-compressed only
 tests/golden/*.jsonl
+
+# Claude Code session files
+.claude/

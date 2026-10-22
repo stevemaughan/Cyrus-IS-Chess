@@ -77,7 +77,7 @@ pub const exclusion_capacity = 512; // bytes in the next-best list (pairs)
 pub const State = struct {
     // ------------------------------------------------------------- position
     /// $BD00-$BD77: 0x88 board, square = (8 - rank) * 16 + file. 0 = empty,
-    /// otherwise a piece code (bit 7 White, bit 2 set, code & $7B = record offset).
+    /// otherwise a piece code (bit 7 White, bit 2 set, code & $FB = record offset).
     /// Off-board squares are never stored here; see `offboard`.
     board: [128]u8 = @splat(0),
     /// $BE00-$BEFF: 32 piece records x 8 bytes, indexed by record offset
