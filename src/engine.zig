@@ -119,6 +119,54 @@ pub const Engine = struct {
     start_fen: ?[]u8 = null,
     history: std.ArrayList(game.Move) = .empty,
     checkpoints: std.ArrayList(Checkpoint) = .empty,
+    /// The state at the first `go` after the last `position` (UCI: every `go`
+    /// searches the position the GUI set, even though the engine plays its
+    /// own move into its game after each `go`).
+    go_base: ?GoBase = null,
+
+    const GoBase = struct {
+        cp: Checkpoint,
+        pending: ?game.Move,
+        history_len: usize,
+        checkpoints_len: usize,
+    };
+
+    fn dropGoBase(e: *Engine) void {
+        if (e.go_base) |b| {
+            e.gpa.free(b.cp.bytes);
+            e.gpa.free(b.cp.root_list);
+        }
+        e.go_base = null;
+    }
+
+    /// At each `go`: save the position on the first `go` after `position`,
+    /// restore it on later ones.
+    fn goBaseline(e: *Engine) !void {
+        if (e.go_base) |b| {
+            restoreState(e.s, b.cp.bytes);
+            @memcpy(e.s.lists[0..b.cp.root_list.len], b.cp.root_list);
+            e.session.turn = b.cp.turn;
+            e.session.pending = b.pending;
+            for (e.checkpoints.items[b.checkpoints_len..]) |c| {
+                e.gpa.free(c.bytes);
+                e.gpa.free(c.root_list);
+            }
+            e.checkpoints.shrinkRetainingCapacity(b.checkpoints_len);
+            e.history.shrinkRetainingCapacity(b.history_len);
+            return;
+        }
+        const bytes = try e.gpa.alloc(u8, stateSize());
+        errdefer e.gpa.free(bytes);
+        saveState(bytes, e.s);
+        const end = @min(st.listOffset(e.s.slot[2]) + 4, st.list_bytes_original);
+        const root_list = try e.gpa.dupe(u8, e.s.lists[0..end]);
+        e.go_base = .{
+            .cp = .{ .bytes = bytes, .root_list = root_list, .turn = e.session.turn, .cyrus_moved = false },
+            .pending = e.session.pending,
+            .history_len = e.history.items.len,
+            .checkpoints_len = e.checkpoints.items.len,
+        };
+    }
 
     pub fn init(gpa: std.mem.Allocator, io: std.Io, out: Output) !*Engine {
         const e = try gpa.create(Engine);
@@ -133,6 +181,7 @@ pub const Engine = struct {
     }
 
     pub fn deinit(e: *Engine) void {
+        e.dropGoBase();
         e.clearCheckpoints();
         e.checkpoints.deinit(e.gpa);
         e.history.deinit(e.gpa);
@@ -240,6 +289,7 @@ pub const Engine = struct {
     /// `ucinewgame`: the original's new game (G, Y). Like the original it
     /// keeps $BCA0, $BCCE and the level.
     pub fn newGame(e: *Engine) !void {
+        e.dropGoBase();
         e.session.turn = game.newGame(e.s);
         e.valid = true;
         try e.resetHistory(null);
@@ -248,6 +298,7 @@ pub const Engine = struct {
     /// `position`: AGENTS.md §9.4 and §9.6. A rejected position prints the
     /// reason and leaves the engine without a valid position.
     pub fn position(e: *Engine, p: uci_parse.Position) !void {
+        e.dropGoBase();
         var moves: std.ArrayList(game.Move) = .empty;
         defer moves.deinit(e.gpa);
         var it = std.mem.tokenizeAny(u8, p.moves, " \t");
@@ -344,6 +395,9 @@ pub const Engine = struct {
         const s = e.s;
         const start_ms = e.nowMs();
         if (!e.valid) return e.finishNoMove(g, sig, "no valid position");
+        // A repeated `go` searches the position the GUI set, not the game
+        // after the engine's own previous move.
+        try e.goBaseline();
 
         // Bring the program to ComputerMove ($6147) by the operator script.
         if (e.opts.level) |lv| game.setLevel(s, lv);
@@ -795,6 +849,30 @@ test "a short game in extended mode: legal moves, info lines, continuation" {
     try std.testing.expect(out.has("info depth"));
     const m2 = bestmove(&out);
     try std.testing.expect(m2.len >= 4);
+}
+
+test "a repeated go without position searches the same position" {
+    const gpa = std.testing.allocator;
+    var out: TestOut = .{ .gpa = gpa };
+    defer out.deinit();
+    errdefer out.dump();
+    const e = try Engine.init(gpa, std.testing.io, out.output());
+    defer e.deinit();
+    var sig: Signals = .{};
+    try run(e, &sig, "setoption name Seed value 3");
+    try run(e, &sig, "position fen r1bq1rk1/pp2bppp/2n1pn2/3p4/2PP4/2N1PN2/PP3PPP/R2QKB1R w KQ - 0 9");
+    for (0..3) |_| {
+        try run(e, &sig, "go depth 3");
+        const m = bestmove(&out);
+        // White to move every time: the move starts on a White piece's square.
+        const from = try game.squareFromName(m[0..2]);
+        try std.testing.expect(e.s.board[from] == 0); // played into the game...
+        try std.testing.expect(legal.whiteToMove(e.s) == false); // ...for White
+    }
+    // a continuation after repeated go: the engine's last move plus ours
+    out.clear();
+    try run(e, &sig, "go searchmoves a2a3 depth 2");
+    try std.testing.expectEqualStrings("a2a3", bestmove(&out));
 }
 
 test "rejected positions and no-move positions" {

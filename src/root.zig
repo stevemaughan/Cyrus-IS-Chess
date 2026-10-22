@@ -20,6 +20,7 @@ pub const legal = @import("legal.zig");
 pub const rng = @import("rng.zig");
 pub const engine = @import("engine.zig");
 pub const uci = @import("uci.zig");
+pub const perft = @import("perft.zig");
 
 test {
     _ = state;
@@ -41,5 +42,6 @@ test {
     _ = rng;
     _ = engine;
     _ = uci;
+    _ = perft;
     _ = @import("golden.zig");
 }

@@ -76,7 +76,12 @@ pub fn run(gpa: std.mem.Allocator, io: std.Io) !void {
     var reader = std.Io.File.stdin().reader(io, &in_buf);
     while (true) {
         const raw = reader.interface.takeDelimiter('\n') catch |err| switch (err) {
-            error.StreamTooLong => continue,
+            error.StreamTooLong => {
+                // takeDelimiter leaves an over-long line unread: skip it.
+                _ = reader.interface.discardDelimiterInclusive('\n') catch break;
+                out.output().line("info string error: input line too long, ignored");
+                continue;
+            },
             else => return err,
         } orelse break;
         // A byte-order mark may precede the first command (e.g. Windows pipes).

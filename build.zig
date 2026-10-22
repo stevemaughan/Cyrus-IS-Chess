@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) void {
 
     // Per-unit test steps: each compiles only its unit and that unit's imports,
     // so units can be developed independently (`zig build test-eval`, ...).
-    inline for (.{ "board", "eval", "book", "search", "game", "driver", "engine" }) |unit| {
+    inline for (.{ "board", "eval", "book", "search", "game", "driver", "engine", "perft" }) |unit| {
         const unit_mod = b.createModule(.{
             .root_source_file = b.path("src/test_" ++ unit ++ ".zig"),
             .target = target,

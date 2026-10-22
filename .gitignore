@@ -9,3 +9,5 @@ tests/golden/*.jsonl
 
 # Claude Code session files
 .claude/
+zig-out-safe/
+zig-out-safe2/
