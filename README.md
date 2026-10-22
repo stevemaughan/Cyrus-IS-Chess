@@ -10,6 +10,7 @@
   <img alt="Original: ZX Spectrum 48K" src="https://img.shields.io/badge/original-ZX%20Spectrum%2048K-1a1a1a">
   <img alt="European Microcomputer Champion 1981" src="https://img.shields.io/badge/European%20champion-1981-c0392b">
   <img alt="Verified against the original" src="https://img.shields.io/badge/fidelity-verified%20vs%20original-8e44ad">
+  <img alt="16,000 to 30,000 times faster than the Spectrum" src="https://img.shields.io/badge/speed--up-16%2C000%E2%80%9330%2C000%C3%97-e67e22">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
@@ -23,7 +24,7 @@
 
 **Cyrus** was written by **Richard Lang**. In 1981 it won the second **European Microcomputer Chess Championship**, and in **1983** it was published as **Cyrus IS Chess** for the Sinclair **ZX Spectrum** by **Intelligent Software Ltd**, on a cassette with a 16K and a 48K version. Lang went on to write the Psion and Mephisto programs that dominated the world microcomputer championships for the rest of the decade.
 
-This project is a port of the **48K version** to a modern **UCI** chess engine. It plays the same moves as the original, for the same reasons. Its search and evaluation are the original's, translated from the Z80 machine code and checked against that code running in an emulator. On top of that, it can search as deep as you let it, manage a clock, and report its thinking to any UCI chess GUI.
+This project is a port of the **48K version** to a modern **UCI** chess engine. It plays the same moves as the original, for the same reasons. Its search and evaluation are the original's, translated from the Z80 machine code and checked against that code running in an emulator. On top of that, it can search as deep as you let it, manage a clock, and report its thinking to any UCI chess GUI. On a modern laptop it runs **16,000 to 30,000 times faster** than it did on the Spectrum. A move that took Cyrus 5 minutes in 1983 now takes a few tens of milliseconds, and the same 5 minutes now buy a search several plies deeper.
 
 ## Contents
 
@@ -103,7 +104,14 @@ The original's levels remain available as an exact reference mode (`Level 1` …
 - **Takebacks and ponder misses** restore the exact engine state from a checkpoint saved after every move, so the original's carried-over state (its last score, random counter, book position and so on) stays as it was.
 - **Reproducible games:** the original's random sources (the Z80 `R` register and keyboard timing) are replaced by a seeded generator (`Seed`).
 - **A legality safety net:** every `bestmove` is checked by an independent legality test. It has never fired in testing, but the engine can never send an illegal move.
-- **Speed:** about **3 million nodes per second** on a modern PC, against about 190 on a 3.5 MHz Spectrum. That is roughly **16,000 times faster**. A Level 8 move took about 5 minutes on the Spectrum; the port plays the identical search in a few tens of milliseconds.
+- **Speed: 16,000 to 30,000 times faster.** Both machines were measured on the same positions. The original's own Z80 code was timed cycle by cycle in the simulator at 3.5 MHz, and the port was timed on a modern laptop (one thread, high-performance mode):
+
+  | Position | ZX Spectrum (3.5 MHz Z80) | Modern laptop | Speed-up |
+  |---|---|---|---|
+  | Opening / middlegame | about 150–190 nodes/s | about 3.0–3.2 million nodes/s | about 16,000–20,000× |
+  | Endgame | about 230 nodes/s | about 8.4 million nodes/s | about 30,000–36,000× |
+
+  A Level 8 move took about 5 minutes on the Spectrum; the port plays the identical search, node for node, in a few tens of milliseconds. The endgame gains most because fewer pieces speed up the port more than they did the Z80. The measurements are in [`AGENTS.md`](AGENTS.md) §3.
 
 ## Bugs fixed in the original
 
@@ -126,6 +134,15 @@ This is a **behavioural** translation, not an emulation. The Z80 memory layout i
 3. **The evaluation:** every term, weight and 8-bit wrap-around, and its random term, bit for bit.
 
 Wherever the original's decisions depend on a side effect of its memory layout, the port reproduces the *effect* explicitly. These include variables read as if they were board squares, stale data left by earlier searches, and list addresses compared as numbers. Given the same position, level and random seed, **the port plays the same move as the original**. Weak play, odd evaluations and chess misconceptions are preserved deliberately: this is a restoration, not an improvement.
+
+**Adapted for UCI.** The original was a self-contained Spectrum program: keyboard in, screen out, no clock. To work as a UCI engine it needed things it never had, and the port adds them *around* the faithful core, never inside it:
+
+- **Time management:** the original has no clock at all. The port budgets time from `wtime`/`btime`, increments and `movestogo` (or `movetime`). It stops a search exactly where the original would have stopped for a key press, so a stopped search behaves exactly like an interrupted original.
+- **Iterative deepening:** UCI's time controls need a search that can stop at any depth. The port repeats the original's own two-pass mechanism at increasing depth instead of adding a new algorithm.
+- **Search information:** the depth, score, node count, principal variation and current move that UCI GUIs display. All of it is gathered by watching the search, never by changing it.
+- **Protocol plumbing:** positions from FEN and move lists, pondering, `searchmoves`, `stop`/`ponderhit`, seeded randomness for reproducible games, and a legality check on every move sent.
+
+Every adaptation is documented in [`docs/EXTENDED_SEARCH.md`](docs/EXTENDED_SEARCH.md) and [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md). The original levels remain available unchanged as a reference mode.
 
 Every difference from the original, however small, is recorded in [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md). Quirks kept on purpose are in [`docs/OBSERVATIONS.md`](docs/OBSERVATIONS.md).
 
