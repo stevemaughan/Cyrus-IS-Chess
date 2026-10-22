@@ -73,10 +73,10 @@ Every behavioural difference between the Zig port and the original 48K Cyrus IS 
 - **Class:** E. **Status:** planned.
 - **Change:** soft and hard limits from the UCI clock (`docs/EXTENDED_SEARCH.md` §4). Between passes, decide whether to start the next pass; within a pass, abort via DEV-007.
 
-## DEV-011: Reporting PV and pondering
+## DEV-011: Search information and pondering
 - **Class:** E. **Status:** planned.
 - **Change:**
-  - a reporting-only triangular PV table, updated where the original raises alpha and never read by the search;
+  - rich UCI `info` output (depth, seldepth, score, nodes, nps, time, PV, currmove/currmovenumber, optional currline/refutation), collected by observing the search at fixed points and never read by it (`docs/EXTENDED_SEARCH.md` §6). This includes a reporting-only triangular PV table updated where the original raises alpha. No MultiPV (owner decision);
   - `bestmove … ponder …`;
   - `go ponder` / `ponderhit`;
   - engine-state checkpoints per game ply, so a diverging `position` (ponder miss, takeback) restores state exactly (AGENTS.md §9.6).

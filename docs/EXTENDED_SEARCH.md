@@ -85,7 +85,7 @@ else:
 | `wtime btime winc binc movestogo` | §4 |
 | `movetime T` | §4 |
 | `depth N` | schedule up to D = N (N ≤ `MAX_DEPTH`); no time limit |
-| `nodes N` | schedule until the node counter (entries to `$7D43` + root makes) reaches N, then abort as a key press |
+| `nodes N` | schedule until the node counter (§6: positions visited = calls to make) reaches N, then abort as a key press at the next node entry |
 | `mate N` | schedule until `$BCA0 ≥ $FE` with a mate of ≤ N moves (from `$BD0C`), or until D ≥ 2N+1; no time limit unless clock parameters are also given |
 | `infinite` | schedule until `stop`; `bestmove` is held until `stop` even if `MAX_DEPTH` is reached |
 | `ponder` | as `infinite` until `ponderhit` (which switches to §4 with the clock values given in the `go ponder` command, measured from the ponderhit) or `stop` |
@@ -93,12 +93,48 @@ else:
 
 Several parameters combine; the first limit reached stops the search.
 
-## 6. Reporting (no effect on search)
+## 6. Search information (instrumentation only)
 
-- After each completed pass: `info depth D seldepth S score … nodes N nps … time … pv …`. Also `currmove`/`currmovenumber` at the root, at most once per second.
-- **PV:** the original keeps no principal variation. The port maintains a **reporting-only** triangular PV table, updated where the original raises alpha (`L7E49` `V(p) = A`, `L7F5B`). It is never read by the search.
-- **Score:** cp = (`$BCA0` − `$80`) × 100 / 8 from the engine's view. `$BCA0` ≥ `$FE` → `mate +⌈$BD0C/2⌉`; a root value of 1 or 2 → `mate −…` when a forced loss is detected.
-- **`bestmove`:** the move at `$BD29`. It carries `ponder` with the PV's second move when the PV has one.
+The port exports everything a modern UCI engine reports, in both modes. It does this by **observing** the search at fixed points; it never changes what the search does (owner request, 2026-10-22).
+
+**The rule that keeps this faithful:** instrumentation may read the search's state and keep its own counters and tables, but nothing the search reads may ever depend on them. Phase 3 tests run the golden files with all reporting switched on, at the most verbose settings. Make sequences must stay identical.
+
+### 6.1 Observation points
+
+| Event | Original location | Collected |
+|---|---|---|
+| Move made | make `$810F` | `nodes`, the current line (`currline`) |
+| Node entry | `$7D43` / poll `$78BA` | a time check every 1,024 nodes; stop flag (DEV-007) |
+| Deepest ply reached | ply counter `$BCA9` after a make | `seldepth` |
+| Root move started | `L7DEE`/`L80FA` with p = 1 (`$BD2B` set) | `currmove`, `currmovenumber` (its position in the original's search order) |
+| Alpha raised at ply p | `L7E49` (`V(p) = A`), `L7F5B` | the triangular PV table: line p = move p + line p+1 |
+| New best root move | `L7E9B` (`$BD29 = $BD2B`) | `info … score … pv …` immediately |
+| Cut-off at ply 2 under a root move | `L7E79`, `L7F81` with p = 2 | `refutation` of that root move |
+| Pass completed | end of PASS | the full `info` line for the pass |
+
+### 6.2 Fields
+
+| UCI field | Definition |
+|---|---|
+| `depth` | the pass's full-width depth D (`$BCAA`). In original mode it is the level's D (two lines for Levels 6–8) |
+| `seldepth` | deepest ply made in this pass (at most D+3) |
+| `nodes` | positions visited = calls to make, including each node's static scoring. Cumulative over the passes of one `go`. The same counter drives `go nodes` |
+| `nps`, `time` | from the wall clock, measured from the `go` |
+| `score cp X` | X = (V − `$80`) × 100 / 8, where V is the root value from the engine's view. The evaluation's material unit is 8 per pawn, so X moves in steps of 12.5 |
+| `score mate ±M` | V ≥ `$FE`: a forced mate for the engine; V ≤ 2: a forced mate against it. M is derived from the reporting PV's length when it ends in mate, or from `$BD0C` (ply of the shortest root mate) for a win. Reporting only: the search itself does not score mates by distance |
+| `lowerbound` / `upperbound` | not used. The root window is (−∞, +∞) and the search is fail-hard, so every reported root score is exact |
+| `pv …` | the reporting PV. Inside the selective layer the PV holds what the original actually searched (selective plies are evaluated, so lines may end early) |
+| `currmove m`, `currmovenumber n` | each root move as the search starts it. Sent only after 1 s of searching, then at most once per root move, as is customary |
+| `currline …` | only when `UCI_ShowCurrLine` is true: the moves at plies 1…p, from the current-move table, at most once per second |
+| `refutation m r…` | only when `UCI_ShowRefutations` is true: for each root move that failed, the ply-2 reply that cut it off |
+| `string …` | book moves (`info string book move e2e4`), the level/profile in use, rejections, DEV fallbacks, `NO MATE FOUND` |
+| `hashfull`, `tbhits`, `sbhits`, `wdl` | not sent. The original has no hash table or tablebases, and a win/draw/loss model would be invented, not faithful |
+
+MultiPV is not offered (owner decision, 2026-10-22).
+
+### 6.3 `bestmove`
+
+`bestmove` is the move at `$BD29`. It carries `ponder` with the PV's second move when the PV has one.
 
 ## 7. What extended mode must never do
 

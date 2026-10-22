@@ -363,8 +363,11 @@ option name Profile type combo default Level 8 var Level 6 var Level 7 var Level
 option name OwnBook type check default true
 option name Ponder type check default false
 option name Move Overhead type spin default 30 min 0 max 5000
+option name UCI_ShowCurrLine type check default false
+option name UCI_ShowRefutations type check default false
 option name Seed type spin default 0 min 0 max 2147483647
 ```
+- `UCI_ShowCurrLine` and `UCI_ShowRefutations` switch on the optional `currline` and `refutation` reports (`docs/EXTENDED_SEARCH.md` §6.2).
 - `Profile` chooses which original level's switches extended mode uses beyond the first pass:
   - Level 6: threat extensions off, forward pruning on;
   - Level 7: threat extensions on, forward pruning on;
@@ -373,7 +376,7 @@ option name Seed type spin default 0 min 0 max 2147483647
   It is ignored in original mode.
 - Combo values contain spaces. In `setoption name Level value Level 3`, the value is the rest of the line after `value`. Match it case-insensitively; ignore unknown values with an `info string` warning.
 - `Seed` 0 means seed from the clock.
-- Do **not** advertise `Hash`, `Threads` or `MultiPV`; the original has no equivalents.
+- Do **not** advertise `Hash`, `Threads` or `MultiPV` (owner decision: MultiPV not needed).
 
 ### 9.2 Commands
 - **Commands:** `uci`, `isready`, `ucinewgame`, `setoption`, `position [startpos | fen <fen>] [moves …]`, `go`, `stop`, `ponderhit`, `quit`, `debug`.
@@ -383,15 +386,15 @@ option name Seed type spin default 0 min 0 max 2147483647
 - **`bestmove`:** printed exactly once per `go`, and always legal (§8.2). After `stop`, it is the move the original would play when interrupted at that point (`$BD29`).
 - **No legal moves** (checkmate or stalemate at the root): `bestmove 0000`.
 
-### 9.3 `info` output
-- After each completed pass: `info depth D seldepth S score cp X nodes N nps R time T pv …`. Here D is the pass's full-width depth, S the deepest ply reached, and N the number of `$7D43` node entries plus root makes (documented in `UCI.md`). The PV comes from a reporting-only table (`docs/EXTENDED_SEARCH.md` §6).
-- **Score conversion:**
-  - centipawns = (`$BCA0` − `$80`) × 100 / 8 (the evaluation's material scale is 8 units per pawn), from the engine's point of view;
-  - `$BCA0` ≥ `$FE` is `score mate +M`, with M derived from `$BD0C`;
-  - a forced loss is `score mate −M`.
+### 9.3 `info` output (search information)
+The engine exports rich search information in both modes (owner request, 2026-10-22):
+- per pass: `depth`, `seldepth`, `score` (cp or mate), `nodes`, `nps`, `time`, `pv`;
+- on every new best root move: `score` and `pv` at once;
+- `currmove` and `currmovenumber`;
+- optionally `currline` and `refutation`;
+- `info string` for book moves, the level and profile in use, rejections, fallbacks and `NO MATE FOUND`.
 
-  This affects reporting only.
-- `info string` is used for book moves, rejections, fallbacks and `NO MATE FOUND`.
+All of it is **instrumentation only**: collected at fixed observation points, never read by the search, and verified by running the golden tests with all reporting on. The full definitions (node counting, score conversion at 8 units per pawn, mate distances, the reporting PV) are in `docs/EXTENDED_SEARCH.md` §6. Document the as-built behaviour in `UCI.md`.
 
 ### 9.4 Positions: reproduce set-up mode, reject what it rejects
 
@@ -528,6 +531,8 @@ When you are stuck, write down what you know, what you tried and the exact addre
 6. **UCI identity:** `id name Cyrus IS Chess`, `id author Richard Lang`.
 7. **Deeper search** (owner, 2026-10-21): the engine may search deeper than the original and must support every UCI `go` command. Iterative deepening and time management are allowed, provided the evaluation and the search (move ordering, extensions, pruning) stay faithful. Design: `docs/EXTENDED_SEARCH.md`.
 8. **Fidelity is behavioural** (owner, 2026-10-21): the engine must play the same moves under the same constraints, through the same search and evaluation. The memory layout does not need to be preserved. Memory side effects that influence decisions are reproduced explicitly (§6 Phase 3).
+
+13. **Rich search information** (owner, 2026-10-22): export PV, node counts, current move, selective depth and the other standard UCI `info` fields, as instrumentation that never affects the search (§9.3, `EXTENDED_SEARCH` §6). MultiPV is not needed.
 
 ### Implementer proposals accepted ("proceed as planned", owner, 2026-10-21)
 9. **Oracle:** SkoolKit's simulator plus committed golden files, rather than a new Zig Z80 core (§6 Phase 2).
