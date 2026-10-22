@@ -25,6 +25,8 @@ The oracle runs the **original Cyrus IS Chess code** in SkoolKit's Z80 simulator
 | `book.jsonl.gz` | `golden_search.py … --book tools/research/book/book-uci.txt` | every book position × 2 random inputs |
 | `eval.jsonl.gz` | `golden_eval.py … --fuzz 20000 --samples 10000 --seed 1` | 30,000 evaluations |
 | `abort.jsonl.gz` | `golden_abort.py tests/golden/search.jsonl.gz … --count 400` | searches re-run from their state with a key press at a random node (`$78BA`) |
+| `board.jsonl.gz` | `golden_board.py` | 17,694 makes (and unmakes) through the original `$810F`/`$821C` from captured states |
+| `bookprobe.jsonl.gz` | `golden_bookprobe.py` | 8,600 book probes: exactly what `$7AC7` reads and what it leaves |
 
 All were checked with `verify_state.py` / `verify_eval.py`: every record re-runs identically from its captured state.
 

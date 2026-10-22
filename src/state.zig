@@ -29,8 +29,13 @@ pub const list_bytes_extended: u32 = 32768 * 4;
 /// list is generated; it is the last game move.
 pub const root_record: u32 = 0xBD58;
 
+/// Offsets up to $957 keep their original address $B400 + offset (pointer
+/// values then match the original even past a list-full abort); larger ones
+/// (extended mode only) continue at $10000 so they never reach $BD58.
+const original_addressed: u32 = root_record - list_base;
+
 pub fn listAddr(offset: u32) u32 {
-    return if (offset < list_bytes_original) list_base + offset else 0x10000 + offset;
+    return if (offset < original_addressed) list_base + offset else 0x10000 + offset;
 }
 
 pub fn listOffset(addr: u32) u32 {
@@ -378,7 +383,9 @@ pub const State = struct {
 test "list addresses" {
     try std.testing.expectEqual(@as(u32, 0xB400), listAddr(0));
     try std.testing.expectEqual(@as(u32, 0xBC7C), listAddr(list_bytes_original - 4));
-    try std.testing.expectEqual(@as(u32, 0x10000 + list_bytes_original), listAddr(list_bytes_original));
+    try std.testing.expectEqual(@as(u32, 0xBC84), listAddr(list_bytes_original + 4));
+    try std.testing.expectEqual(@as(u32, 0xBD54), listAddr(root_record - list_base - 4));
+    try std.testing.expectEqual(@as(u32, 0x10000 + 0x958), listAddr(root_record - list_base));
     try std.testing.expectEqual(@as(u32, 100), listOffset(listAddr(100)));
     try std.testing.expectEqual(@as(u32, 5000), listOffset(listAddr(5000)));
 }

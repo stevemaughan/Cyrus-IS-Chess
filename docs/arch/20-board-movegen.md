@@ -359,6 +359,14 @@ These are in `40-makemove.ctl` because of the range split, but they belong to th
 - **`$79E0`** and **`$80A2`** are code, not data.
 - **`$BD0D`**: material balance change, Black − White.
 
+## 7a. Zig port verification (Phase 3, units 3.3/3.4)
+
+`src/movegen.zig` and `src/board.zig` (`zig build test-board`):
+- Root lists generated from 8,768 captured states (`search`, `edge`, `book` goldens) are identical to the original's: entries, order, flags, header. 35 have ≥ 127 moves and differ only in the header count, which the port stores correctly (DEV-001).
+- 17,694 makes from `tests/golden/board.jsonl.gz` (made by `tools/oracle/golden_board.py` with the original `$810F`/`$821C`) are identical: board, piece records, entry flags, `$BD0D`, and the pushed frames. They cover every marker: quiet, capture, en passant, castling (score `$FF` and 0), quiet and capture promotions. Unmake restores the original's state in every case.
+- 285,188 make/unmake round trips restore the position exactly.
+- List-full detail: the original still writes an entry starting at `$BC80`. The port compares list offsets, so this matches in both modes.
+
 ## 8. Open questions
 
 1. Who sets the root record `$BD58–$BD5B` after a game move, and its flags bit 7 (in check)? (Subsystem A, `$6560`/`$6332`; `RES 7,(IX+3)` at `$6332`.)
