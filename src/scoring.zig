@@ -72,33 +72,35 @@ test "root scoring matches the original (root_scored in search.jsonl.gz)" {
     const golden = @import("golden.zig");
     const movegen = @import("movegen.zig");
     const gpa = std.testing.allocator;
-    var buf: [1024]u8 = undefined;
-    var g = try golden.open(gpa, std.testing.io, try golden.path(&buf, "search.jsonl.gz"));
-    defer g.deinit();
     const s = try gpa.create(State);
     defer gpa.destroy(s);
     var n: usize = 0;
     var bad: usize = 0;
-    for (0..g.lines.len) |i| {
-        var p = try g.parse(gpa, i);
-        defer p.deinit();
-        for (p.value.object.get("goes").?.array.items) |go| {
-            const out = go.object.get("out").?.object;
-            const want = out.get("root_scored") orelse continue;
-            s.* = .{};
-            try golden.loadState(s, go.object.get("state").?.object);
-            s.search_flags = 0x40; // ComputerMove $614E
-            const r = movegen.generate(s, st.root_record);
-            scoreMoves(s, r.header, r.count, &@import("observer.zig").none);
-            n += 1;
-            for (want.array.items, 0..) |item, k| {
-                const e = s.entry(st.listAddr(4 + 4 * @as(u32, @intCast(k))));
-                const score: u8 = @intCast(item.array.items[0].integer);
-                const flags: u8 = @intCast(item.array.items[1].integer);
-                if (e[0] != score or e[3] != flags) {
-                    if (bad < 5) std.debug.print("root scoring {d}/{d}: entry {d} got {x}/{x} want {x}/{x}\n", .{ i, n, k, e[0], e[3], score, flags });
-                    bad += 1;
-                    break;
+    for ([_][]const u8{ "search.jsonl.gz", "search-high.jsonl.gz" }) |name| {
+        var buf: [1024]u8 = undefined;
+        var g = try golden.open(gpa, std.testing.io, try golden.path(&buf, name));
+        defer g.deinit();
+        for (0..g.lines.len) |i| {
+            var p = try g.parse(gpa, i);
+            defer p.deinit();
+            for (p.value.object.get("goes").?.array.items) |go| {
+                const out = go.object.get("out").?.object;
+                const want = out.get("root_scored") orelse continue;
+                s.* = .{};
+                try golden.loadState(s, go.object.get("state").?.object);
+                s.search_flags = 0x40; // ComputerMove $614E
+                const r = movegen.generate(s, st.root_record);
+                scoreMoves(s, r.header, r.count, &@import("observer.zig").none);
+                n += 1;
+                for (want.array.items, 0..) |item, k| {
+                    const e = s.entry(st.listAddr(4 + 4 * @as(u32, @intCast(k))));
+                    const score: u8 = @intCast(item.array.items[0].integer);
+                    const flags: u8 = @intCast(item.array.items[1].integer);
+                    if (e[0] != score or e[3] != flags) {
+                        if (bad < 5) std.debug.print("root scoring {d}/{d}: entry {d} got {x}/{x} want {x}/{x}\n", .{ i, n, k, e[0], e[3], score, flags });
+                        bad += 1;
+                        break;
+                    }
                 }
             }
         }

@@ -313,6 +313,13 @@ test "sessions of the search golden file reach the oracle's states" {
     try std.testing.expectEqual(@as(usize, 0), stats.failures);
 }
 
+test "sessions of search-high.jsonl.gz reach the oracle's states" {
+    var stats: SessionStats = .{};
+    try runSessions("search-high.jsonl.gz", &stats);
+    std.debug.print("search-high.jsonl.gz: {d} sessions, {d} first computer moves, {d} later, {d} failures\n", .{ stats.sessions, stats.first_go, stats.later_go, stats.failures });
+    try std.testing.expectEqual(@as(usize, 0), stats.failures);
+}
+
 test "edge positions: FEN loading and the states they lead to" {
     var stats: SessionStats = .{};
     try runSessions("edge.jsonl.gz", &stats);

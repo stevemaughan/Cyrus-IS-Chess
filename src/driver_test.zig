@@ -211,6 +211,13 @@ test "anchors: extended depth 1/2/4 = original Levels 1/2/6/7/8 (search.jsonl.gz
     try std.testing.expectEqual(@as(usize, 0), t.bad);
 }
 
+test "anchors: search-high.jsonl.gz (Levels 6-8)" {
+    const t = try runAnchors("search-high.jsonl.gz", null);
+    std.debug.print("anchors search-high.jsonl.gz: {d} checked, {d} differ\n", .{ t.checked, t.bad });
+    try std.testing.expect(t.checked > 500);
+    try std.testing.expectEqual(@as(usize, 0), t.bad);
+}
+
 test "anchors: edge.jsonl.gz and book.jsonl.gz" {
     const e = try runAnchors("edge.jsonl.gz", null);
     const b = try runAnchors("book.jsonl.gz", null);

@@ -277,7 +277,7 @@ test "make then unmake restores the position (every root move of the goldens)" {
     const s = try gpa.create(State);
     defer gpa.destroy(s);
     var moves: usize = 0;
-    for ([_][]const u8{ "search.jsonl.gz", "edge.jsonl.gz" }) |name| {
+    for ([_][]const u8{ "search.jsonl.gz", "search-high.jsonl.gz", "edge.jsonl.gz" }) |name| {
         var buf: [256]u8 = undefined;
         var g = try golden.open(gpa, std.testing.io, try golden.path(&buf, name));
         defer g.deinit();

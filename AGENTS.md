@@ -72,6 +72,40 @@ Phase 1 is complete; see `docs/ORIGINAL_ARCHITECTURE.md` for the summary and `do
 - **Positions enter the original two ways:** a new game, or set-up mode. Set-up mode has its own legality check (§9.4) and resets the move number to 10, disables the book and forbids an immediate en passant.
 - **Known bugs** are listed in `docs/DEVIATIONS.md`. Preserved quirks are in `docs/OBSERVATIONS.md`. Unresolved points are in `docs/OPEN_QUESTIONS.md`.
 
+### Speed: the original and the port (measured 2026-10-22)
+
+**The original on a 48K Spectrum (3.5 MHz Z80).** These figures come from the original code under the oracle's simulator, counting T-states from ComputerMove until the move is played. A "node" here is a call to make (`$810F`), the same unit the port reports as UCI `nodes`.
+
+- **The 60-search sample** (out-of-book positions, 12 each at Levels 1, 2, 4, 6 and 8):
+  - about 18,600 T-states per node: **about 188 nodes/s** and about 179 evaluations/s;
+  - the evaluation dominates, at about 19,000 T-states (about 5.5 ms) per call;
+  - the original's own node counter (`$7D43` entries) runs at only about 15/s.
+
+| Level | Average time per move | Nodes/s |
+|---|---|---|
+| 1 | 2.8 s | 79 (fixed root-generation and scoring overhead dominates) |
+| 2 | 5.7 s | 154 |
+| 4 | 20 s | 170 |
+| 6 | 68 s | 196 |
+| 8 | about 5 min | 189 |
+
+- **Caveats:**
+  - The simulator does not model contended memory. The search and move generator (`$6000–$7FFF`) are slowed by the display on a real machine, but the evaluation and make/unmake (`$8000`+) are not. A real 48K should therefore be about 3–8% slower, about **175–185 nodes/s**.
+  - The 50 Hz interrupt is included.
+  - A real 48K runs at 3.5469 MHz (about 1% faster).
+
+**The port (ReleaseFast, one thread, development PC in high-performance mode), with the original on the same positions** (loaded by FEN, so out of book):
+
+| Position | Original (Level 4, uncontended) | Port, `go movetime 10000` | Speed-up |
+|---|---|---|---|
+| Start position | 149 nodes/s | 3.23 M nodes/s (depth 8) | ≈ 21,700× |
+| Sicilian middlegame | 156 nodes/s | 2.99 M nodes/s (depth 7) | ≈ 19,200× |
+| Rook endgame `8/5pk1/6p1/3R4/1r6/6PP/5PK1/8 w` | 234 nodes/s | 8.37 M nodes/s (depth 9) | ≈ 35,800× |
+
+- **Short searches understate the original.** Its Level 4 figures carry the fixed per-move overhead; over longer searches it settles at about 190 nodes/s.
+- **Steady-state speed-up:** about **16,000×** in the opening and middlegame, and about **35,000×** in endgames, where the port gains more from fewer pieces than the original does.
+- **In practice:** a Level 8 move averages about 5 minutes on a Spectrum. The port makes the identical depth-4 search, node for node, in about 20–30 ms. In those same 5 minutes it reaches about depth 8, approaching 9, in the middlegame (`docs/UCI.md`, Performance).
+
 ---
 
 ## 4. Repository layout

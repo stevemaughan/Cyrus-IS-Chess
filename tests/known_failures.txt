@@ -1,0 +1,10 @@
+# Fidelity tests known to fail (AGENTS.md §2.8). They must be listed here with
+# a reason; they are never skipped silently.
+#
+# Format: one per line
+#   <test name> | <reason> | <DEV / OBSERVATIONS / OPEN_QUESTIONS reference>
+#
+# Currently none. Records deliberately excluded from a comparison are counted
+# and reported by the test itself instead (e.g. the 35 DEV-001 edge positions,
+# the eval fuzz records with unrepresentable off-board junk, and the oracle's
+# "too few fields" FEN rejection that the flexible FEN rule accepts).

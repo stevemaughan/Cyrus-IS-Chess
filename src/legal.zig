@@ -286,9 +286,6 @@ test "root static scores agree with the legality test (search.jsonl.gz)" {
     const movegen = @import("movegen.zig");
     const scoring = @import("scoring.zig");
     const gpa = std.testing.allocator;
-    var buf: [1024]u8 = undefined;
-    var g = try golden.open(gpa, std.testing.io, try golden.path(&buf, "search.jsonl.gz"));
-    defer g.deinit();
     const s = try gpa.create(State);
     defer gpa.destroy(s);
     const copy = try gpa.create(State);
@@ -296,37 +293,42 @@ test "root static scores agree with the legality test (search.jsonl.gz)" {
     var positions: usize = 0;
     var moves: usize = 0;
     var disagree: usize = 0;
-    for (0..g.lines.len) |i| {
-        var p = try g.parse(gpa, i);
-        defer p.deinit();
-        for (p.value.object.get("goes").?.array.items) |go| {
-            s.* = .{};
-            try golden.loadState(s, go.object.get("state").?.object);
-            copy.* = s.*;
-            s.search_flags = 0x40;
-            const r = movegen.generate(s, st.root_record);
-            scoring.scoreMoves(s, r.header, r.count, &@import("observer.zig").none);
-            positions += 1;
-            var off = st.listOffset(s.slot[1]) + 4;
-            const end = st.listOffset(s.slot[2]);
-            var legal_count: usize = 0;
-            while (off < end) : (off += 4) {
-                const e = s.lists[off..][0..4];
-                const legal = isLegal(copy, e[1], e[2]);
-                if (legal) legal_count += 1;
-                moves += 1;
-                if (legal != (e[0] != 0)) {
-                    if (disagree < 5) {
-                        var b = snapshot(copy);
-                        const w = whiteToMove(copy);
-                        const r0 = copy.board[e[1]] & 0xFB;
-                        std.debug.print("line {d}: {x:0>2}-{x:0>2} score {d} legal {} white {} pseudo {} chk {} transit {} kt {x} rook10 {x}/{x} rook18 {x}/{x}\n", .{ i, e[1], e[2], e[0], legal, w, pseudoLegal(copy, &b, kindOf(copy, copy.board[e[1]]), w, e[1], e[2]), b.attacked(e[1], !w), b.attacked(if (e[2] > e[1]) e[1] + 1 else e[1] - 1, !w), copy.rec[r0 + 1], copy.rec[(r0 & 0x80) | 0x10], copy.rec[(r0 & 0x80) | 0x11], copy.rec[(r0 & 0x80) | 0x18], copy.rec[(r0 & 0x80) | 0x19] });
+    for ([_][]const u8{ "search.jsonl.gz", "search-high.jsonl.gz" }) |name| {
+        var buf: [1024]u8 = undefined;
+        var g = try golden.open(gpa, std.testing.io, try golden.path(&buf, name));
+        defer g.deinit();
+        for (0..g.lines.len) |i| {
+            var p = try g.parse(gpa, i);
+            defer p.deinit();
+            for (p.value.object.get("goes").?.array.items) |go| {
+                s.* = .{};
+                try golden.loadState(s, go.object.get("state").?.object);
+                copy.* = s.*;
+                s.search_flags = 0x40;
+                const r = movegen.generate(s, st.root_record);
+                scoring.scoreMoves(s, r.header, r.count, &@import("observer.zig").none);
+                positions += 1;
+                var off = st.listOffset(s.slot[1]) + 4;
+                const end = st.listOffset(s.slot[2]);
+                var legal_count: usize = 0;
+                while (off < end) : (off += 4) {
+                    const e = s.lists[off..][0..4];
+                    const legal = isLegal(copy, e[1], e[2]);
+                    if (legal) legal_count += 1;
+                    moves += 1;
+                    if (legal != (e[0] != 0)) {
+                        if (disagree < 5) {
+                            var b = snapshot(copy);
+                            const w = whiteToMove(copy);
+                            const r0 = copy.board[e[1]] & 0xFB;
+                            std.debug.print("line {d}: {x:0>2}-{x:0>2} score {d} legal {} white {} pseudo {} chk {} transit {} kt {x} rook10 {x}/{x} rook18 {x}/{x}\n", .{ i, e[1], e[2], e[0], legal, w, pseudoLegal(copy, &b, kindOf(copy, copy.board[e[1]]), w, e[1], e[2]), b.attacked(e[1], !w), b.attacked(if (e[2] > e[1]) e[1] + 1 else e[1] - 1, !w), copy.rec[r0 + 1], copy.rec[(r0 & 0x80) | 0x10], copy.rec[(r0 & 0x80) | 0x11], copy.rec[(r0 & 0x80) | 0x18], copy.rec[(r0 & 0x80) | 0x19] });
+                        }
+                        disagree += 1;
                     }
-                    disagree += 1;
                 }
+                var all: [256]Move = undefined;
+                try std.testing.expectEqual(legal_count, legalMoves(copy, &all));
             }
-            var all: [256]Move = undefined;
-            try std.testing.expectEqual(legal_count, legalMoves(copy, &all));
         }
     }
     std.debug.print("legality: {d} positions, {d} root moves, {d} disagreements with root scoring\n", .{ positions, moves, disagree });

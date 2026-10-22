@@ -202,6 +202,13 @@ test "search: search.jsonl.gz" {
     try std.testing.expectEqual(@as(usize, 0), t.bad);
 }
 
+test "search: search-high.jsonl.gz (Levels 6-8, P1-P3 top-up)" {
+    const t = try runSessions("search-high.jsonl.gz");
+    std.debug.print("search-high.jsonl.gz: {d} checked, {d} differ\n", .{ t.checked, t.bad });
+    try std.testing.expect(t.checked > 1500);
+    try std.testing.expectEqual(@as(usize, 0), t.bad);
+}
+
 test "search: edge.jsonl.gz (DEV-001 cases listed separately)" {
     const t = try runSessions("edge.jsonl.gz");
     std.debug.print("edge.jsonl.gz: {d} checked, {d} differ, {d} DEV-001 cases skipped\n", .{ t.checked, t.bad, t.dev001 });

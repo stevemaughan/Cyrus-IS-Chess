@@ -282,7 +282,7 @@ test "root move lists match the original (search, edge, book goldens)" {
     defer gpa.destroy(s);
     var total: usize = 0;
     var dev001: usize = 0;
-    for ([_][]const u8{ "search.jsonl.gz", "edge.jsonl.gz", "book.jsonl.gz" }) |name| {
+    for ([_][]const u8{ "search.jsonl.gz", "search-high.jsonl.gz", "edge.jsonl.gz", "book.jsonl.gz" }) |name| {
         var buf: [256]u8 = undefined;
         var g = try golden.open(gpa, std.testing.io, try golden.path(&buf, name));
         defer g.deinit();

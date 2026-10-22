@@ -46,4 +46,7 @@ test {
     _ = pipe_io;
     _ = perft;
     _ = @import("golden.zig");
+    _ = @import("integrity.zig");
+    // The search's golden comparisons (also `zig build test-search`).
+    _ = @import("search_test.zig");
 }
