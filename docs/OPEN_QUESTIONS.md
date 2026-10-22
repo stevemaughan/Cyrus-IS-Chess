@@ -1,0 +1,9 @@
+# Open questions
+
+Unresolved points about the original, each with the addresses involved. Close one by recording the answer (with evidence) in the relevant `arch/` document and deleting it here.
+
+1. **Castling through an attacked square.** When the move's score byte is `$FF` (root scoring), make (`$81EA`) puts the king's code on the transit square. Is that how the evaluation rejects castling through check? Is every such root move scored 0? *Evidence needed:* a root position where castling passes through an attacked square, checked in the simulator. (Subsystems B/E; feeds DEV-005.)
+2. **Can the off-board column bytes be non-zero while the evaluation or move generator runs?** These are `$BDx8–$BDxF`, which hold variables such as `$BD58`, `$BD29` and `$BD49`. The evaluation and move generator read them as squares for a- and h-file pieces. They were zero in every sample, but the port keeps the memory layout, so behaviour matches either way. A definite answer would tell us whether the original can misbehave here. (B/E.)
+3. **When can `$BD4E` be zero after an evaluation?** If it is, `$7F27` extends unconditionally. The evaluation clears it on a double check (`$8D44`). Are there other cases? (C/E.)
+4. **`ReplayStep` skips `$8400`.** Does a game replayed by take-back or forward differ from the same game played live (check flags, `$BCCE`)? This matters if the port rebuilds positions by replaying the record. (A.)
+5. **`$BD4A` drift.** `$7810` adds the positional term B to `$BD4A` every computer move, and it is never reset except at new game or set-up. Over a long game it can drift far enough for the evaluation's 8-bit arithmetic to wrap (50-eval §8.2). Confirm the observed range in long demo games. (B/E.)

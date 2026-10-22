@@ -1,0 +1,20 @@
+import os as _os
+HERE = _os.path.dirname(_os.path.abspath(__file__))
+ROOT = _os.path.normpath(_os.path.join(HERE, '..', '..', '..'))
+SCRIPTS = _os.path.join(ROOT, 'tools', 'scripts')
+ENTRY = _os.path.join(ROOT, 'reference', 'snapshots', 'cyrus48-entry-6000.z80')
+LVL1 = _os.path.join(ROOT, 'reference', 'snapshots', 'cyrus48-idle-level1.z80')
+WORK = _os.path.join(HERE, 'work')
+_os.makedirs(WORK, exist_ok=True)
+import sys, time
+sys.path.insert(0, SCRIPTS)
+import book_dump as bd
+t = time.time()
+m = bd.Machine(ENTRY)
+m.run_until(bd.IDLE, 50_000_000); print('idle at', time.time()-t)
+L0 = m.move_list(); print([bd.describe(m.sim.memory, mv) for mv in L0])
+s = m.save()
+t = time.time(); r = m.play_index(13, check=True); print('replay took', time.time()-t, 'replay list == idle list:', r == L0)
+L1 = m.move_list(); print(len(L1), [bd.describe(m.sim.memory, mv) for mv in L1])
+mem = m.sim.memory; print('C001', mem[0xC001], 'BD2D', mem[0xBD2D], 'BF00', [hex(x) for x in mem[0xBF00:0xBF04]])
+m.restore(s); r = m.play_index(3); print('after restore+Nf3 BF00', [hex(x) for x in m.sim.memory[0xBF00:0xBF04]])

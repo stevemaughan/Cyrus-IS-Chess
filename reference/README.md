@@ -74,6 +74,14 @@ The BASIC program, detokenized:
 
   The simulation ran the real BASIC and `CLoad48` loader through the ROM and stopped at `PC=$6000`. Its `$6000–$9FFF` is byte-identical to `extracted/cyrus48-6000-9FFF.bin`.
 
+- `snapshots/cyrus48-idle-level1.z80` is the start position, Level 1 selected, waiting at `YOUR MOVE?`. It was made with:
+
+  ```
+  cyrus_sim.py reference/snapshots/cyrus48-entry-6000.z80 --keys "w3s,<l/3,w10 ×10>,w1s" --out …
+  ```
+
+  That is: wait 3 s, press L ten times (Level 2 → … → P3 → Level 1), wait 1 s. The result is deterministic; regenerating it is byte-identical. The Phase 1 research scripts use it as their base state.
+
 ## Run check
 
 Tracing the snapshot for 3.0 s of emulated time (`trace.py -M 10500000 …`) reaches the idle main loop, with the screen shown in `../docs/images/original-startup.png`. That screen shows `HUMAN v CYRUS`, `YOUR MOVE?`, `LEVEL 2`, `SOUND ON`, `LISTING OFF` and the 48K command bar. This matches the manual's description of the 48K version and its default level.

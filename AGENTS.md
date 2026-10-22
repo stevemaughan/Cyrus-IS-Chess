@@ -6,20 +6,20 @@ This file tells any agent (human or AI) working in this repository what we are b
 
 ## 1. Mission
 
-Produce a UCI chess engine, written in Zig, whose **search and evaluation behave exactly like the 48K version of Richard Lang's *Cyrus IS Chess* for the ZX Spectrum** (Intelligent Software / Sinclair Research, 1983). Given the same position and the same amount of search, it must choose the same move for the same reasons.
+Produce a UCI chess engine, written in Zig, whose **search and evaluation behave exactly like the 48K version of Richard Lang's *Cyrus IS Chess* for the ZX Spectrum** (Intelligent Software / Sinclair Research, 1983). Given the same game state and the same level, it must choose the same move for the same reasons.
 
 "Faithful" means:
 
 - Same move generation **and the same move order**.
-- Same evaluation terms, weights, tables, integer widths and overflow behaviour.
-- Same search algorithm, including pruning, move ordering, extensions, iteration structure, window handling, tie-breaking, opening book, draw handling and mate scoring.
-- Same node counts for a fixed-depth search. This is our strongest proof of fidelity.
+- Same evaluation terms, weights, tables, integer widths and overflow behaviour, including the evaluation's pseudo-random term.
+- Same search algorithm, including pruning, move ordering, extensions, level structure, tie-breaking, opening book, draw handling and mate scoring.
+- Same sequence of moves made during a search, which implies the same node counts. This is our strongest proof of fidelity.
 
 There are only three permitted classes of change (see §8):
 
 1. **Crash-class bugs are fixed.** These cover anything that could crash, hang or corrupt the engine's memory.
 2. **Illegal moves are fixed.** The engine must never output an illegal move.
-3. **Platform adaptation.** This covers I/O, time measurement, the UCI protocol, and loading positions from FEN, with positions the original could not handle being rejected.
+3. **Platform adaptation.** This covers I/O, the UCI protocol, time management, random sources, and loading positions from FEN, with positions the original could not handle being rejected.
 
 Everything else, *including weak play, odd evaluation and chess misconceptions*, is preserved deliberately. We are restoring a historical artefact. We are not improving it.
 
@@ -27,55 +27,43 @@ Everything else, *including weak play, odd evaluation and chess misconceptions*,
 
 ## 2. Non-negotiable rules for agents
 
-1. **The original Z80 binary is the specification.** The canonical binary is `reference/extracted/cyrus48-6000-9FFF.bin`, taken from `reference/original/CyrusISChess-48k.tzx` (provenance in `reference/README.md`). Third-party descriptions of Cyrus, forum posts, your memory of "how chess engines usually work" and the behaviour of later Lang programs (Cyrus II, Psion Chess, Mephisto) are *hints only*. The original manual (`docs/manual/`) is a strong hint, but the code wins if they disagree.
-2. **Never "improve" the engine.** Do not add transposition tables, null-move pruning, LMR, better evaluation terms, under-promotion search, or anything else the original does not do. If you notice a weakness, record it in `docs/OBSERVATIONS.md` and leave it alone.
-3. **Every ported routine cites its origin.** Each Zig function that ports original code carries a doc comment naming the Z80 address range and the disassembly label, e.g. `/// Port of GENMOV ($7A10–$7B9F).`
+1. **The original Z80 binary is the specification.** The canonical binary is `reference/extracted/cyrus48-6000-9FFF.bin`, taken from `reference/original/CyrusISChess-48k.tzx` (provenance in `reference/README.md`).
+   - Its behaviour is documented in `docs/ORIGINAL_ARCHITECTURE.md` and `docs/arch/`.
+   - Third-party descriptions of Cyrus, your memory of "how chess engines usually work" and later Lang programs are *hints only*.
+   - The manual (`docs/manual/`) is a strong hint, but the code wins if they disagree.
+2. **Never "improve" the engine.** Do not add transposition tables, iterative deepening, null-move pruning, better evaluation terms, under-promotion search, mate-distance scoring, or anything else the original does not do. If you notice a weakness, record it in `docs/OBSERVATIONS.md` and leave it alone.
+3. **Every ported routine cites its origin.** Each Zig function that ports original code carries a doc comment naming the Z80 address range and the disassembly label, e.g. `/// Port of GenMoves ($78CE–$79C7).`
 4. **Every deviation is logged.** Any behavioural difference from the original, however small, gets an entry in `docs/DEVIATIONS.md` (format in §8.4) and a test that demonstrates it. An unlogged deviation is a bug.
-5. **Prove fidelity by differential testing against the original code running in an emulator** (the oracle, §6 Phase 2). "It looks right" is not evidence. A routine is ported only when it matches the oracle on the test corpus.
+5. **Prove fidelity by differential testing against the original code** running in the oracle (§6 Phase 2). "It looks right" is not evidence. A routine is ported only when it matches the oracle on the test corpus.
 6. **Mark uncertainty explicitly.** If you port something you have not verified against the oracle, tag it `// UNVERIFIED:` with a reason. `zig build check-unverified` must report zero of these before a release.
-7. **The reference binaries are committed and immutable.** The project is abandonware and the owner has decided the tape images, extracted blocks and (later) the 48K ROM live in the repository. Never edit, re-save or regenerate anything under `reference/original/` or `reference/extracted/`. Verify them against `reference/CHECKSUMS.txt` before relying on them. New reference files are added with a hash and a provenance note.
+7. **The reference binaries are committed and immutable.** The project is abandonware, and the owner has decided the tape images, extracted blocks, ROM and reference snapshots live in the repository.
+   - Never edit, re-save or regenerate anything under `reference/`.
+   - Verify files against `reference/CHECKSUMS.txt` before relying on them.
+   - New reference files are added with a hash and a provenance note (including the exact command that made them).
 8. **Keep the build green.** `zig build test` must pass on every commit. Fidelity tests that are known to fail must be listed, with a reason, in `tests/known_failures.txt`. They must never be silently skipped.
 
 ---
 
 ## 3. What we know about the original
 
-### 3.1 The binary (established — see `reference/README.md`)
+Phase 1 is complete; see `docs/ORIGINAL_ARCHITECTURE.md` for the summary and `docs/arch/` for the specifications. The facts that drive the design of the port are below.
 
-- **Canonical release:** the Sinclair Research 1983 original, 48K side of the cassette (TZX). Both tape copies of the 48K program are byte-identical, and an independent TAP re-save has an identical code block.
-- **Load chain:** BASIC (`CLEAR 24319`) → logo at `$5A00` → loader `CLoad48` at `$5B00` → ROM `LD-BYTES` loads a headerless 16,384-byte block at **`$6000–$9FFF`** → `JP $6000`. There is no copy protection.
-- **Entry `$6000`:** `LD HL,$1111 / LD ($5CB2),HL / LD ($5CB4),HL / DI / LD ($BCC8),IY …`. The program runs with interrupts disabled at times and uses RAM above `$9FFF` as workspace. The game record, book state and so on probably live there; map this in Phase 1.
-- **16K version:** `reference/original/CyrusISChess-16k.tzx` is the simplified version from the other side of the cassette. It is useful for cross-referencing routines, but it is **not** the specification.
-
-### 3.2 Behaviour documented in the manual (`docs/manual/CyrusISChess.txt`) — verify each in code
-
-- **Levels:** eight playing levels, with average time per move: L1 ≈ 2 s, L2 ≈ 5 s, L3 ≈ 10 s, L4 ≈ 20 s, L5 ≈ 30 s, L6 ≈ 75 s, L7 ≈ 3 min, L8 ≈ 5–12 min. "Thinking time can vary considerably with the complexity of the position". The default after loading is **Level 2**.
-- **Problem levels P1, P2, P3:** search for mate in 1/2/3. The engine keeps thinking until it finds a mate or proves by exhaustive analysis that none exists. If there is none, it shows `NO MATE FOUND` and does not move.
-- **Interrupt:** any keypress during `LET ME THINK...` makes Cyrus stop and play the best move found so far. So there is a mid-search keyboard poll, and its location is our `stop`/time-check point.
-- **Promotion:** the engine *always promotes to a queen*. It cannot solve problems that require under-promotion, so the search probably never generates under-promotions. The user may under-promote, so the game-move path does accept R/B/N promotions.
-- **Draws and results:** it recognises checkmate, stalemate, the 50-move rule and "repetition of consecutive moves" (the same pieces moving back and forth three times). Whether and how the *search* uses these is to be determined.
-- **Opening book:** in the 48K version only. "First few moves are likely to be made quickly irrespective of the level."
-- **Next best (N key):** the engine retracts its move and searches again with previously played root moves excluded. This is a root-move exclusion mechanism, which can support UCI `searchmoves` (§9.2).
-- **Set-up mode and legality:** the engine rejects with `ILLEGAL` any position where a side has no king, a pawn is on the back rank, the material is impossible (e.g. "eight pawns in addition to two queens"), or the side *not* to move is in check.
-  - A king or rook *entered* in set-up mode cannot castle. Castling is possible only if those pieces are left untouched from the game position.
-  - After set-up, the next move cannot be an en passant capture. The manual's workaround is to set up the preceding position and play the double pawn push.
-  - Move numbering restarts at 10 after set-up.
-
-### 3.3 To be discovered from the disassembly (do not assume)
-
-- Board representation (8×8, 10×12, 0x88, piece lists, or a mixture). How "has moved" / castling state is held.
-- Move representation, and the layout and size of the move stack.
-- Move generator(s) and their exact order (this matters: it decides ties).
-- Search: full-width alpha-beta? Iterative deepening? Aspiration windows? Quiescence rules? Check extensions? Killer or history ordering? Selective components? How the problem levels differ from the playing levels.
-- Evaluation: material values, piece-square tables, pawn structure, king safety, mobility, and any root preprocessing (Lang's later programs are known for preparing evaluation tables at the root; check whether Cyrus does this).
-- Score units, score width (8-bit or 16-bit), and how mate and draw are encoded.
-- **The level → termination mechanism:** a time budget per level? A depth? Both? Where is the clock read (`FRAMES` sysvar `$5C78`, or the program's own interrupt counter, since it runs with interrupts disabled at times)? Exactly where is the keyboard polled?
-- Opening book: format, size, lookup and source of randomness (often `R` or `FRAMES`).
-- The set-up legality routine, and every condition it checks (§9.4 depends on this).
-- The game-record capacity in the 48K version (the manual says "any number" of moves can be retracted, but memory is finite).
-- Maximum search depth and every fixed-size buffer.
-
-Record each finding in `docs/ORIGINAL_ARCHITECTURE.md` with the addresses it was derived from. This document becomes the specification that the Zig code is checked against.
+- **Binary:** 16 KB at `$6000–$9FFF` (code, tables, and the opening book at `$9000–$9BCC`), loaded by a standard ROM loader, entry `$6000`. The workspace is `$B400–$C0FF`.
+- **No clock.** Nothing reads a timer.
+  - A level is a fixed search shape (depth D = 1, 2, 2, 2, 3, 4, 4, 4 for Levels 1–8, plus pruning and extension switches, and a Level-2 pre-pass for Levels 6–8).
+  - P1/P2/P3 search like Levels 1/4/8.
+  - There is no iterative deepening, and the deepest ply is 7.
+  - The manual's "times per level" were just Spectrum speed.
+- **Interruption:** a key press, polled at every search node, sets an abort flag. The search unwinds and plays the best completed root move.
+- **Scores** are one unsigned byte with `$80` = equal. Mates are not distance-scored.
+- **The evaluation adds noise** from the random byte `$BCCE`, which it increments on every call.
+- **Behaviour depends on the memory layout and on history**, not only on the position:
+  - move order follows piece-*slot* order;
+  - the search reads stale per-ply data and compares list addresses;
+  - the evaluation and move generator read variables in the board's off-board columns as if they were squares;
+  - the previous search's score (`$BCA0`), the repetition counter, the book state and the game record all persist between moves.
+- **Positions enter the original two ways:** a new game, or set-up mode. Set-up mode has its own legality check (§9.4) and resets the move number to 10, disables the book and forbids an immediate en passant.
+- **Known bugs** are listed in `docs/DEVIATIONS.md`. Preserved quirks are in `docs/OBSERVATIONS.md`. Unresolved points are in `docs/OPEN_QUESTIONS.md`.
 
 ---
 
@@ -85,52 +73,47 @@ Record each finding in `docs/ORIGINAL_ARCHITECTURE.md` with the addresses it was
 AGENTS.md                     ← this file
 build.zig / build.zig.zon     ← Zig build; pins the Zig version
 .zigversion                   ← exact Zig version used
-reference/                    ← COMMITTED, IMMUTABLE ground truth
-  README.md                   ← provenance, tape layout, loader disassembly
-  CHECKSUMS.txt               ← SHA-256 of every reference file
+reference/                    ← COMMITTED, IMMUTABLE ground truth (see reference/README.md)
   original/                   ← CyrusISChess-48k.tzx (canonical), CyrusISChess-16k.tzx, 48.rom
-  extracted/                  ← raw blocks pulled from the canonical TZX (cyrus48-6000-9FFF.bin etc.)
-  snapshots/                  ← cyrus48-entry-6000.z80 and later oracle snapshots (hashed)
+  extracted/                  ← raw tape blocks (cyrus48-6000-9FFF.bin etc.)
+  snapshots/                  ← cyrus48-entry-6000.z80, cyrus48-idle-level1.z80
 disasm/
-  cyrus.ctl                   ← SkoolKit control file: the annotated disassembly source
-  cyrus.skool                 ← generated; regenerate, don't hand-edit
-  labels.zon                  ← address → label map shared with the Zig tools
+  ctl/NN-*.ctl                ← SkoolKit control files, one per subsystem (the annotated source)
+  cyrus.skool, cyrus.asm      ← generated by tools/scripts/build-disasm.ps1; never hand-edit
 docs/
-  manual/                     ← original instructions (txt + pdf)
-  ORIGINAL_ARCHITECTURE.md    ← spec of the original, with addresses
-  PORT_STATUS.md              ← table: routine | address | Zig location | oracle-verified?
+  manual/                     ← original instructions
+  ORIGINAL_ARCHITECTURE.md    ← summary spec of the original
+  arch/                       ← subsystem specs: 00-overview, 10-main-ui, 20-board-movegen, 25-book, 30-search, 50-eval
+  PORT_STATUS.md              ← port units and their verification state
   DEVIATIONS.md               ← every behavioural difference from the original
-  OBSERVATIONS.md             ← weaknesses/quirks noticed and deliberately preserved
+  OBSERVATIONS.md             ← quirks deliberately preserved
   OPEN_QUESTIONS.md           ← unresolved questions, with addresses
   UCI.md                      ← protocol behaviour and options as implemented
 src/
   main.zig                    ← entry point; starts the UCI loop
   uci.zig                     ← UCI parsing, I/O thread, info output
-  position.zig                ← FEN/moves → original game state; rejection logic
-  board.zig                   ← ported board representation and make/unmake
-  movegen.zig                 ← ported move generator
-  legality.zig                ← ported set-up legality check + root legality filter
-  eval.zig                    ← ported evaluation (+ root preprocessing if any)
-  search.zig                  ← ported search (playing and problem modes)
-  book.zig                    ← ported opening book
-  book_data.zig               ← generated from the binary by tools/extract
-  tables.zig                  ← generated eval/data tables extracted from the binary
-  levels.zig                  ← original level definitions + UCI time mapping
-  limits.zig                  ← every fixed capacity of the original, in one place
+  memory.zig                  ← the memory image (§6 Phase 3) and named addresses
+  game.zig                    ← new game, set-up mode, game-move path, FEN/moves → game state, rejection
+  board.zig                   ← make/unmake (ported)
+  movegen.zig                 ← move generator (ported)
+  presearch.zig               ← pre-search set-up $7810 (ported)
+  eval.zig                    ← evaluation (ported)
+  search.zig                  ← search state machine (ported)
+  book.zig                    ← opening book probe (ported; data read from the memory image)
+  levels.zig                  ← Level option, UCI time mapping, abort
+  rng.zig                     ← seeded PRNG standing in for R and key-wait timing
 tools/
-  z80/                        ← Z80 CPU core (Zig) used ONLY by the oracle
-  oracle/                     ← harness: runs original code on demand, exposes probes
-  extract/                    ← pulls tables and book from the binary into src/*_data.zig
-  diff/                       ← differential test drivers (movegen/eval/search)
-  scripts/                    ← one-off Python/PowerShell helpers
+  scripts/                    ← simulator driver, ctl generator, disassembly build, book dumper
+  research/                   ← Phase 1 probes and verified Python models (see its README)
+  oracle/                     ← Phase 2 oracle (Python, SkoolKit simulator) and golden-file generators
 tests/
+  golden/                     ← oracle outputs committed as test data
   positions/*.epd             ← test corpora (see §10)
-  perft.epd
   deviations/                 ← one test per DEVIATIONS.md entry
   known_failures.txt
 ```
 
-The engine (`src/`) must never import anything from `tools/`. The emulator is a test fixture, not part of the product.
+The engine (`src/`) must never depend on `tools/` or on Python. Zig tests read the committed golden files.
 
 ---
 
@@ -140,146 +123,126 @@ Install with [Scoop](https://scoop.sh) where available:
 
 ```powershell
 scoop install zig@0.17.0 zls python git      # main bucket
-python -m pip install skoolkit               # disassembler / tracer (10.1 used so far)
+python -m pip install skoolkit chess         # disassembler/simulator (10.1 used so far); python-chess for legality cross-checks
 scoop bucket add games; scoop install mame   # optional: Spectrum emulation with a strong debugger
 ```
 
-On Windows, a fresh shell can resolve `python` to the Microsoft Store alias rather than Scoop's Python. If that happens, call `~\scoop\apps\python\current\python.exe` directly. SkoolKit's scripts are in `~\scoop\apps\python\current\Scripts\`.
-
-- **Zig 0.17.0** is pinned in `.zigversion` and `build.zig.zon` (`minimum_zig_version`). Zig is pre-1.0 and its standard library changes between releases, especially the I/O / `Writer` / `Reader` interfaces. Check the documentation for *the pinned version* before you use any std API, and do not copy snippets written for other versions. Upgrading Zig is a deliberate, separate commit.
-- **SkoolKit** (`tapinfo.py`, `tap2sna.py`, `sna2ctl.py`, `sna2skool.py`, `skool2asm.py`, `skool2html.py`, `trace.py`): the main disassembly and annotation tool. The control file (`.ctl`) is the long-lived artefact.
-- **An emulator with a debugger** for interactive exploration. Fuse or ZEsarUX are not in Scoop, so download them from their project sites. MAME is in Scoop's `games` bucket.
-- **A UCI test harness**: `fastchess` and/or `cutechess-cli`. These are not in Scoop; use their GitHub releases.
+- On Windows, a fresh shell can resolve `python` to the Microsoft Store alias rather than Scoop's Python. If that happens, call `~\scoop\apps\python\current\python.exe` directly. SkoolKit's scripts are in `~\scoop\apps\python\current\Scripts\`.
+- SkoolKit's C simulator extension is not built for Python 3.15, so the pure-Python simulator is used. It runs the original at roughly 10–15× real Spectrum speed, which is enough for the oracle.
+- **Zig 0.17.0** is pinned in `.zigversion` and `build.zig.zon` (`minimum_zig_version`). Zig is pre-1.0 and its standard library changes between releases, especially I/O (`Writer`/`Reader`). Check the documentation for *the pinned version* before you use any std API. Upgrading Zig is a deliberate, separate commit.
+- **Emulators:** Fuse or ZEsarUX (not in Scoop; download from their project sites) for interactive exploration.
+- **UCI test harnesses:** `fastchess` and/or `cutechess-cli` (GitHub releases).
 - Run Python that reads downloaded files with `python -I`.
 
 ---
 
 ## 6. Work plan
 
-The phases are sequential. Each phase has deliverables and exit criteria, and a phase is not done until its exit criteria are met. Update `docs/PORT_STATUS.md` as you go.
+The phases are sequential. Each phase has deliverables and exit criteria, and a phase is not done until its exit criteria are met. Keep `docs/PORT_STATUS.md` current.
 
-### Phase 0 — Acquire and pin the original ✅ (done 2026-10-21)
+### Phase 0 — Acquire and pin the original ✅ (2026-10-21)
 
-Done:
-- Canonical release chosen, verified and committed.
-- 48K ROM added (`reference/original/48.rom`).
-- Post-load snapshot made (`reference/snapshots/cyrus48-entry-6000.z80`).
-- The program traced to its idle main loop, showing Level 2 and the 48K UI (`docs/images/original-startup.png`).
+The canonical release, ROM and entry snapshot are committed and hashed, and the original has been seen playing (Demo mode reached move 43 at Level 1). See `reference/README.md`.
 
-See `reference/README.md` for all of these. Still to do, early in Phase 1: watch the original make at least one move (e.g. press `M` in an emulator) before relying on the snapshot for search work.
+### Phase 1 — Disassemble and document ✅ (2026-10-21)
 
-### Phase 1 — Disassemble and document
+- **Disassembly:** fully structured. Every instruction executed while thinking is labelled and commented. Main-loop and UI code has routine-level annotation, plus instruction comments wherever it is game logic.
+- **Specifications:** `docs/arch/`.
+- **Verified Python models:** move generator, evaluation and search (`tools/research/`); book decoder (`tools/scripts/book_dump.py`).
 
-1. Start from `reference/snapshots/cyrus48-entry-6000.z80`. Any further snapshots (e.g. "idle at YOUR MOVE?") go under `reference/snapshots/`, with a hash and the exact command that made them.
-2. Generate a first control file (`sna2ctl.py`, using a code map from `trace.py` or emulator execution logging, so that executed bytes are marked as code and the rest as data). Exercise every feature while tracing: all levels, P1–P3, set-up mode, take-back, next-best and promotion.
-3. Annotate iteratively. Find, label and comment, roughly in this order:
-   - **Main loop and UI**: keyboard reading, board drawing, move entry, the `ILLEGAL` path, the set-up mode and its legality check, and the level selector. These are not ported, except for the legality check and the level table, but they show how the engine is called.
-   - **Board and game state**: find these by watching memory writes while a move is made. They include side to move, castling/has-moved state, en passant, the game record and the 50-move/repetition data.
-   - **Make/unmake move.**
-   - **Move generator(s)**: legal or pseudo-legal; captures-only variant; the in-check test; promotion handling.
-   - **Evaluation**: static eval, incremental parts and root preprocessing. Find every table and its index scheme.
-   - **Search**: the recursive routine, quiescence, move ordering, score bounds, iteration driver, depth/ply bookkeeping, PV storage, best-move selection, the problem-level variant and the next-best exclusion list.
-   - **Level and termination logic**: the per-level parameters, where time is read, where the keyboard is polled, and what happens when each fires.
-   - **Opening book**: format, lookup and the source of randomness.
-   - **Every fixed-size buffer and its bounds checks, or lack of them.**
-4. For each subsystem, write the corresponding section of `docs/ORIGINAL_ARCHITECTURE.md`, including pseudocode precise enough to port from. Confirm or correct every manual claim in §3.2.
+Remaining questions are in `docs/OPEN_QUESTIONS.md`; resolve them as their port units come up.
 
-**Exit:** every byte the engine executes while thinking is labelled and commented. The architecture document fully specifies board format, move format, movegen order, eval, search (playing and problem), book, levels/termination, the set-up legality rules, buffers, and the score and mate encoding.
+### Phase 2 — Build the oracle
 
-### Phase 2 — Build the oracle (reference harness)
+The oracle runs the **original code** under SkoolKit's Z80 simulator, driven from Python, and writes **golden files** that the Zig tests compare against. Python is needed only to regenerate golden files, never to build or test the engine.
 
-Build the oracle before porting anything. It lets us test against the original program running in an emulator, so we are not just trusting our reading of the disassembly.
+1. Start from `tools/scripts/cyrus_sim.py` and the probes in `tools/research/`. Build `tools/oracle/` with:
+   - **State loading:** put a game state into memory by driving the original's own code: new game; set-up mode for FEN (the canonical construction in §9.4); game moves through the original's move-entry path (`$61C8`/`$6323`). Set `$BCCE` explicitly.
+   - **Probes:** call original routines directly and capture inputs and outputs:
+     - `gen` (`$78CE`): list in order, header, flags;
+     - make/unmake round trips;
+     - `eval` (`$8400`): A, B, flags and every byte written;
+     - `presearch` (`$7810`);
+     - `setup-check` (verdict);
+     - `search(level)`: the full make sequence (ply, from, to), `$BD29`, `$BCA0`, makes/evals/nodes;
+     - `book(random bytes)`;
+     - `abort-at-node N`, which simulates a key press at the N-th `$7D43` entry.
+   - **Golden-file writers:** a stable text or JSON format per probe in `tests/golden/`, recording the oracle version, the corpus, and the snapshot hash.
+2. A Zig Z80 core is **not** required. Write one only if golden-file generation becomes a bottleneck; if you do, validate it with ZEXDOC/ZEXALL and the FUSE test suite.
 
-1. **Z80 core** in `tools/z80/` (Zig). It must be instruction-exact, including undocumented flags. Validate it with ZEXDOC/ZEXALL and the FUSE core test suite. It must be T-state accurate enough to drive a 50 Hz interrupt (69,888 T-states per frame), so that the original's clock behaves as on real hardware.
-2. **Harness** in `tools/oracle/`:
-   - Load the ROM and the post-load snapshot.
-   - `setPosition(fen | startpos + moves)`: drive the original's own state. Where practical, enter positions through its set-up routine and play moves through its move-entry routine, so that game-record, castling and en passant state is built exactly as the original builds it.
-   - Probes that call original routines directly and stop at their `RET`:
-     - `genMoves()` returns the move list *in generated order*.
-     - `evaluate()` returns the raw score.
-     - `search(level | depth)` returns the best move, score, PV if available, node count (from a counter the harness adds by trapping the make-move address) and per-iteration results.
-     - `bookMove(random)` returns the book move for a controlled random source.
-     - `legalityCheck()` returns the set-up routine's accept/reject verdict.
-   - Trap ROM and UI calls (keyboard scans, printing, sound). The keyboard is "no key" until the harness injects a keypress at a chosen T-state or node, which simulates `stop`. Time is counted in emulated T-states, so oracle results are **fully deterministic**.
-3. Expose the harness as a library to `tools/diff/` and as a CLI (`zig build oracle -- search "<fen>" level=2`).
-
-**Exit:** for 20 hand-picked positions at Levels 1 and 2, the oracle's move equals the move the original plays in a real emulator with the same position. Repeated runs are bit-identical.
+**Exit:** golden files exist for every Phase 3 row. Regenerating them is bit-identical. Spot checks against the interactive original (e.g. the move played after M at Levels 1 and 2 in 10 positions) agree.
 
 ### Phase 3 — Port, bottom-up, each layer proved before the next
 
-| Step | Port | Differential test (Zig vs oracle) |
+**Architecture: memory image.** The port keeps the original's workspace as a byte array with the original addresses: at least `$B400–$C0FF`, plus read-only copies of the tables and the book at their original addresses. Ported routines read and write that image through named address constants in `src/memory.zig`, with the original integer widths.
+
+This is mandatory, not a convenience. Stale move-list data, list-address comparisons, variables read as off-board squares, and persistent state are all behaviour (§3). Translate *control flow and arithmetic* into readable Zig, but keep *data* where the original keeps it.
+
+| Step | Port | Differential test (Zig vs golden) |
 |---|---|---|
-| 3.1 | Data tables, extracted by `tools/extract` and never retyped by hand | byte-for-byte equality with the binary |
-| 3.2 | Board / game state, FEN + moves → original format | state equals the oracle's after `setPosition` |
-| 3.3 | Make/unmake move | board state equal after every make/unmake in perft walks |
-| 3.4 | Move generator(s) | identical move list **in identical order** on the full corpus; perft equality with the oracle |
-| 3.5 | Attack / in-check detection | equal results on the corpus |
-| 3.6 | Set-up legality check | identical accept/reject verdict on a corpus of legal and deliberately illegal positions |
-| 3.7 | Evaluation, including root preprocessing | exact raw score on ≥ 50,000 positions (corpus + positions sampled from oracle search trees) |
-| 3.8 | Quiescence search | equal score and node count |
-| 3.9 | Main search at fixed depth | equal best move, score, PV and **node count** (aim for depth ≥ 4 on 1,000 positions) |
-| 3.10 | Problem search (P1–P3) | identical result, mate line and node count on a mate-problem corpus, including "no mate" cases |
-| 3.11 | Iteration driver and level termination | identical per-iteration output; identical result per level when stop fires at the same node |
-| 3.12 | Opening book | identical candidate set and identical choice given the same random value |
+| 3.1 | Memory image, tables, book data (copied from the binary by the build, never retyped) | byte equality with the binary |
+| 3.2 | New game; set-up mode (slot assignment, legality check); FEN → state via the canonical construction | memory image equal after each operation |
+| 3.3 | Make / unmake | image equal after every make/unmake in random walks |
+| 3.4 | Move generator | identical list, order, header and flags on the corpus. `book_dump.py`'s 2,685 book nodes must also resolve identically |
+| 3.5 | Pre-search set-up (`$7810`) | identical outputs (`$BD1E`, `$BD2E`, `$BD4A`, `$BD6D`, `$BD2D` bits) |
+| 3.6 | Evaluation | identical A, B, flags and memory writes on ≥ 50,000 cases (game samples + fuzz, as in `tools/research/eval/fuzz.py`) |
+| 3.7 | Static scoring, pick-best, find-move | identical |
+| 3.8 | Search, all levels and P1–P3 | identical make sequence, `$BD29`, `$BCA0` and counts on ≥ 500 positions per level |
+| 3.9 | Abort at node N | identical result for injected aborts |
+| 3.10 | Opening book | identical choice for the same random bytes; full-tree walk |
+| 3.11 | Game-move path (PlayMove: record, 50-move counter, repetition tracking, promotion choice) | identical image after move sequences |
 
 **Porting style:**
-- Translate *semantics*, not instructions. Zig code should read like a chess engine, not like Z80 macros. But **integer widths, signedness and wrap-around must match**: if the original adds two 8-bit scores and wraps, use `u8`/`i8` and `+%`. If it saturates, saturate. If it relies on carry, make that explicit.
-- Keep the original's data layouts wherever behaviour depends on them, for example when move order follows memory order, or when a sentinel square stops a ray.
-- Do not restructure control flow if doing so could change node counts or move order. When in doubt, mirror the original structure.
+- The Python models in `tools/research/` are executable specifications. Port from them *and* the disassembly. Where they differ, the disassembly wins, and the model gets fixed.
+- **Integer widths, signedness and wrap-around must match.** Use `u8`/`i8` and `+%` where the original wraps; saturate where it saturates; make carry explicit.
+- The search is a state machine over plies in the original; keep that shape rather than rewriting it as recursion, so that order, counts and stale-data effects match.
 
 **Exit:** every row is green, `docs/PORT_STATUS.md` is fully verified, and `check-unverified` reports zero.
 
 ### Phase 4 — Robustness audit (crashes and illegal moves)
 
-Modern hardware searches roughly 10⁴–10⁵× faster than a 3.5 MHz Z80. Under UCI the engine will reach depths, node counts, game lengths and positions the original never saw. That is where latent crashes live.
+1. **Capacities.** Review every capacity in `src/memory.zig` against `docs/arch/*` (move-list area `$B400–$BC7F`, ply tables, stack, game record, pin list). Confirm the bounds the original guards, and fix the known bugs (DEV-001…DEV-004).
+2. **Safety checks.** Build in `Debug` and `ReleaseSafe` for testing. Every safety panic is either a faithful wrap (make it explicit with `+%`/`-%`) or a real bug (classify it, fix it, log it).
+3. **Illegal-move audit.** In debug builds, assert that every `bestmove` and every PV move is legal. Run perft against true perft and classify each divergence: B if it reaches output, C if it stays internal. Resolve OPEN_QUESTIONS #1 (castling through check) here.
+4. **Stress tests.** Every level including P1–P3; positions with ≥ 127 moves; long games through `position startpos moves …`; promotions galore; no legal moves; one legal move; malformed UCI input; thousands of fast self-play and gauntlet games under `fastchess`.
 
-1. Enumerate every fixed capacity in `src/limits.zig`: move stack, max ply, PV length, game record, repetition history, book pointers, counters. For each one, determine whether the original guards it.
-2. Build Zig in `Debug` and `ReleaseSafe` for testing. Zig's runtime safety checks (integer overflow, out-of-bounds, unreachable) will catch many latent bugs automatically. Every safety panic is either (a) a faithful wrap-around that must be written explicitly with `+%`/`-%`, or (b) a real bug. Classify each one using the original's behaviour.
-3. Run the **illegal-move audit**: assert in debug builds that every `bestmove` and every PV move is legal under full chess rules. Also run perft on the standard suite against true perft. Every divergence is classified: does it reach output (class B, fix) or is it internal only (class C, preserve)?
-4. Stress tests:
-   - Long searches (`go infinite` for minutes, `go depth 30+`).
-   - Very long games via `position startpos moves …` with hundreds of moves (game-record capacity).
-   - Positions with many legal moves, many promoted pieces, every under-promotion as an *input* move, near-mate, stalemate, a single legal move, and no legal moves.
-   - Every level, including P1–P3 on positions with and without a forced mate.
-   - Thousands of fast games against itself and other engines (`fastchess`), checking for crashes, hangs, illegal moves and time losses.
-   - Fuzzing UCI input: malformed FEN, illegal moves in `position … moves`, truncated commands, unknown option values.
-5. Fix each class A/B bug with the smallest change that removes the failure without changing behaviour on inputs where the original worked. Log every fix in `docs/DEVIATIONS.md`.
-
-**Exit:** zero crashes, hangs, illegal moves or safety panics across a 10,000-game self-play run and the full stress suite, with every fix logged and tested.
+**Exit:** zero crashes, hangs, illegal moves or safety panics across a 10,000-game run and the stress suite. Every fix is logged and tested.
 
 ### Phase 5 — UCI layer
 
-Implement §9. Keep it isolated in `uci.zig`, `position.zig` and `levels.zig`. It must not modify ported code except through narrow, documented hooks: the stop/time poll at the original's keyboard-poll point, info reporting and node limits.
+Implement §9 in `uci.zig`, `game.zig` and `levels.zig`. The ported core is driven only through narrow hooks: the abort flag at the `$78BA` poll point, info reporting, and node counting.
 
-**Exit:** passes protocol tests (§10.5) under `fastchess` and `cutechess-cli`, and loads and plays in at least two GUIs (e.g. Arena and Cute Chess) in both UCI-time mode and each fixed level.
+**Exit:** passes the protocol tests (§10.5) under `fastchess` and `cutechess-cli`, and plays in at least two GUIs (e.g. Arena and Cute Chess) in `UCI` mode and at every fixed level.
 
 ### Phase 6 — Release
 
-- Build with `ReleaseFast` (Windows x86_64, Linux x86_64, macOS aarch64). Also ship a `ReleaseSafe` build as a diagnostic option.
-- `README.md`: history, credits to Richard Lang, a summary of deviations and the UCI options.
-- Tag the version. Record the canonical image hash and the Zig version in the release notes.
+- Build `ReleaseFast` for Windows x86_64, Linux x86_64 and macOS aarch64, plus a `ReleaseSafe` diagnostic build.
+- Write `README.md`: history, credits to Richard Lang, a summary of deviations, and the UCI options.
+- Tag the release. Record the canonical image hash and the Zig version in the release notes.
 
 ---
 
 ## 7. Fidelity specification
 
 ### 7.1 Must match the original exactly
-- Move generation order, internal legality decisions, move encoding semantics, and queen-only promotion in search.
-- Every evaluation term, table value, scaling step and rounding/truncation, and the width and overflow behaviour of every arithmetic operation that affects the score.
-- Search: algorithm, bounds, cut-offs, ordering heuristics and their tie-breaks, extensions, quiescence rules, depth accounting, draw/repetition handling inside the search, problem-mode search and best-move selection when scores are equal.
-- Opening book contents and selection logic (given the same random input).
-- The set-up legality verdict.
-- Node counts at fixed depth.
+- Move generation (order, flags, header), make/unmake effects, slot assignment, set-up legality verdicts.
+- The evaluation, bit for bit, including memory side effects and the `$BCCE` increment and noise.
+- The search: make sequence, value table, killers, pruning, extensions, mate/stalemate/repetition handling, the move chosen (`$BD29`) and the root value (`$BCA0`).
+- The book's contents and selection, given the same random inputs.
+- Persistent state between moves, exactly as the original carries it (§9.6).
 
 ### 7.2 May differ (platform adaptation)
-- **Where moves and positions come from**: FEN and UCI instead of the keyboard and set-up mode. Positions the original cannot accept are **rejected** (§9.4).
-- **What triggers termination**: wall-clock time and UCI limits instead of the original's clock and keypresses. But **termination is checked at the same points in the search where the original checked the clock and keyboard**, and it has the same effect: `stop` behaves exactly like the manual's "press any key" (play the best move so far).
-- **Random source for the book**: a seeded PRNG instead of the original's source. The default seed comes from the clock. The UCI option `Seed` makes it reproducible.
-- **Reporting**: UCI `info` lines, scores converted to centipawns and mate-in-N (§9.3). Counters used *only* for reporting may be widened, but if a counter influences behaviour it keeps its original width.
+- **Where positions and moves come from:** FEN and UCI move lists instead of the keyboard (§9.4, §9.6).
+- **Random sources (DEV-006):**
+  - At each `go`, `$BCCE` is set from a seeded PRNG. This stands in for the original's key-wait spin and its `R`-register stirring at `$60EB`.
+  - Each `LD A,R` in the book (`$7B89`) takes the next PRNG byte.
+  - Nothing else about `$BCCE` changes.
+- **Termination (DEV-007):** `stop`, time limits and node limits set the original abort flag at the original poll point, exactly like a key press.
+- **Reporting:** UCI `info` lines; scores converted for display only (§9.3).
 - **Class A and B fixes** (§8).
 
 ### 7.3 Determinism
-With `OwnBook=false` (or a fixed `Seed`) and `go depth N` or `go nodes N`, the engine is fully deterministic. Its output must equal the oracle's.
+With a fixed `Seed` (or `OwnBook=false` and the same seed), the same command sequence produces the same output. The oracle tests set `$BCCE` and the random bytes directly.
 
 ---
 
@@ -289,43 +252,45 @@ With `OwnBook=false` (or a fixed `Seed`) and `go depth N` or `go nodes N`, the e
 
 | Class | Definition | Action |
 |---|---|---|
-| **A — Crash** | Memory corruption, out-of-bounds access, stack/buffer overflow, infinite loop or hang, division by zero, or a safety panic that is a real bug | **Fix.** Minimal change. |
-| **B — Illegal or missing move** | `bestmove` that is illegal under full chess rules (e.g. castling out of, through or into check; an en passant or pin error; moving into check); no `bestmove` when legal moves exist; a PV containing an illegal move | **Fix** (owner decision 2026-10-21). See §8.2 for how. |
-| **C — Chess bug** | Wrong but non-fatal behaviour *inside* the search that never reaches output as an illegal move: misevaluation, pseudo-legal moves searched internally, wrong mate distance, imperfect draw detection | **Preserve.** Record it in `OBSERVATIONS.md`. |
-| **D — Unsupported position** | A position, or a `position … moves` sequence, that the original could not accept or reach | **Reject** (owner decision 2026-10-21). See §9.4. Do not extend data structures to accommodate it. |
+| **A: Crash** | Memory corruption, out-of-bounds access, overflow of a fixed area, hang, or a safety panic that is a real bug | **Fix.** Minimal change. |
+| **B: Illegal or missing move** | An illegal `bestmove` or PV move; no `bestmove` when legal moves exist | **Fix** (owner decision 2026-10-21; §8.2). |
+| **C: Chess bug** | Wrong but non-fatal behaviour that never reaches output as an illegal move | **Preserve**, and record it in `OBSERVATIONS.md`. |
+| **D: Unsupported position** | A position or `position … moves` sequence the original could not accept or reach | **Reject** (owner decision 2026-10-21; §9.4). Never extend data structures to accommodate it. |
 
-If a bug's class is unclear, treat it as C (preserve) and raise it in `DEVIATIONS.md` under "Pending decisions".
+If the class is unclear, treat the bug as C (preserve) and raise it in `DEVIATIONS.md` under "pending decision".
 
 ### 8.2 How illegal moves are fixed
 
 Fix as close to the output as possible, so the search itself is untouched wherever the original was correct:
 
-1. **Root filter**: before searching, test each root move for full legality. A move that the original would have played but that is illegal is removed from the root list. If the original's illegality comes from a generator bug that *also* affects interior nodes, leave the interior nodes alone (class C). Only the root is filtered.
-2. **Fallback**: if the search somehow still produces an illegal or null move while legal moves exist, play the best-ordered legal root move by the original's own ordering, and emit `info string` describing the fallback. Each occurrence found in testing is a bug to root-cause.
-3. **PV sanitising**: truncate a reported PV at its first illegal move. This affects reporting only.
-4. Every distinct cause gets its own `DEVIATIONS.md` entry, identifying the exact original routine at fault.
+1. **Root filter (DEV-005):** before the search, give any root move that fails a full legality test the score the original uses for illegal moves (0). Interior nodes are left alone (class C).
+2. **Book (DEV-002):** an illegal book move is treated as a book miss.
+3. **Fallback:** if a `bestmove` would still be illegal or null while legal moves exist, play the first legal root move in the original's own ordering, and emit `info string`. Every occurrence found in testing is a bug to root-cause and log.
+4. **PV sanitising:** truncate a reported PV at its first illegal move. This affects reporting only.
 
-### 8.3 Expected crash/illegal hotspots (check each)
-- Max ply / move-stack overflow at depths the Spectrum never reached.
-- 8-bit depth, ply or move counters wrapping.
-- PV buffer overrun.
-- Move list overflow in positions with very many moves.
-- Game-record overflow in very long games. Since `position startpos moves …` can be arbitrarily long, treat this as class A and size the buffer so legal games cannot overflow it. This is a capacity fix, not a behaviour change.
-- Book lookup running past the end of the book data.
-- No move returned in checkmate or stalemate at the root, or with a single legal move.
-- Mate score encoding overflowing at long mate distances.
-- Castling legality through attacked squares, en passant discovered-check edge cases, and promotion with capture.
+### 8.3 Known items
+
+The known items are already in `docs/DEVIATIONS.md`:
+- DEV-001: move-count overflow;
+- DEV-002: illegal book move;
+- DEV-003: book ply low byte;
+- DEV-004: unchecked find-move;
+- DEV-005: root filter;
+- DEV-006: random sources;
+- DEV-007: abort.
+
+Deep-search crashes cannot occur: there is no iterative deepening, and the maximum ply is 7. Do not add deeper levels.
 
 ### 8.4 `DEVIATIONS.md` entry format
 
 ```
-## DEV-007: Search depth capped at original MAXPLY
-Class: A
-Original: $7F3C — ply counter indexes PLYTAB without a bound; depth ≥ 24 overwrites the move stack.
-Trigger: `go infinite` from the start position on modern hardware reaches iteration 24.
-Fix: iteration driver stops deepening at MAXPLY-1 (src/search.zig: iterate()).
-Behaviour change when original worked: none (original never exceeded depth 23 in practice).
-Test: tests/deviations/dev007.zig
+## DEV-NNN: Title
+- Class / Status
+- Original: address(es) and behaviour
+- Trigger
+- Fix (Zig location)
+- Behaviour change where the original worked
+- Test: tests/deviations/devNNN.zig
 ```
 
 ---
@@ -340,99 +305,140 @@ option name Level type combo default UCI var UCI var Level 1 var Level 2 var Lev
 option name OwnBook type check default true
 option name Seed type spin default 0 min 0 max 2147483647
 ```
-- Combo values contain spaces. In `setoption name Level value Level 3`, the value is the rest of the line after `value`. Match it case-insensitively, and ignore unknown values with an `info string` warning.
+- Combo values contain spaces. In `setoption name Level value Level 3`, the value is the rest of the line after `value`. Match it case-insensitively; ignore unknown values with an `info string` warning.
 - `Seed` 0 means seed from the clock.
-- Do **not** advertise `Hash`, `Threads`, `MultiPV` or `Ponder`. The original has no equivalents, so there is no `Hash` option because there is no hash table.
+- Do **not** advertise `Hash`, `Threads`, `MultiPV` or `Ponder`; the original has no equivalents.
 
 ### 9.2 Commands
-- `uci`, `isready`, `ucinewgame`, `setoption`, `position [startpos | fen <fen>] [moves …]`, `go`, `stop`, `quit`, `debug`. Ignore `ponderhit` safely.
-- `go` parameters: `wtime btime winc binc movestogo movetime depth nodes mate infinite searchmoves`.
-- `searchmoves` is implemented through the original's next-best root-exclusion mechanism if Phase 1 shows it is suitable. Otherwise it is ignored with an `info string`. Never invent a new root restriction path.
-- **Threading**: one I/O thread reads stdin. The search runs on one worker thread and polls an atomic stop flag **at the original's keyboard-poll point(s)**. `isready` must be answered promptly even while searching.
-- `bestmove` is printed exactly once per `go`, including after `stop`, and is always legal (§8.2). After `stop`, the move played is the one the original would play when interrupted at that point.
+- **Commands:** `uci`, `isready`, `ucinewgame`, `setoption`, `position [startpos | fen <fen>] [moves …]`, `go`, `stop`, `quit`, `debug`. Ignore `ponderhit` safely.
+- **`go` parameters:** `wtime btime winc binc movestogo movetime depth nodes mate infinite searchmoves`.
+- **`searchmoves`:** uses the original's next-best exclusion list (`$BF00`). Every root move *not* listed is excluded. This is the original's own mechanism, so it is not a deviation.
+- **Threading:** one I/O thread reads stdin. The search runs on one worker thread and checks an atomic stop flag at the original's poll point (`$78BA`, the entry to every node). `isready` is answered promptly even while searching.
+- **`bestmove`:** printed exactly once per `go`, and always legal (§8.2). After `stop`, it is the move the original would play when interrupted at that point (`$BD29`).
 - **No legal moves** (checkmate or stalemate at the root): `bestmove 0000`.
 
 ### 9.3 `info` output
-- `info depth D seldepth S score cp X nodes N nps R time T pv …` after each completed iteration, plus `currmove`/`currmovenumber` if cheap.
-- **Score conversion**: the original's units are converted to centipawns by one fixed factor, derived from its pawn value and documented in `UCI.md`. Mate scores become `score mate ±M`. This affects reporting only, never search.
-- `info string` is used for rejections, fallbacks, book moves ("book move") and `NO MATE FOUND`.
+- After the search: `info depth D seldepth S score cp X nodes N time T pv …`. Here D is the level's full-width depth, S the deepest ply reached, and N the number of `$7D43` node entries plus root makes (documented in `UCI.md`).
+- **Score conversion:**
+  - centipawns = (`$BCA0` − `$80`) × 100 / 8 (the evaluation's material scale is 8 units per pawn), from the engine's point of view;
+  - `$BCA0` ≥ `$FE` is `score mate +M`, with M derived from `$BD0C`;
+  - a forced loss is `score mate −M`.
 
-### 9.4 Positions — reject what the original could not handle
+  This affects reporting only.
+- `info string` is used for book moves, rejections, fallbacks and `NO MATE FOUND`.
 
-`position` is processed in this order. The first failure rejects the whole command:
+### 9.4 Positions: reproduce set-up mode, reject what it rejects
 
-1. **Parse FEN** strictly. Malformed FEN is rejected.
-2. **Original legality check**: run the *ported* set-up legality routine (§6 step 3.6) on the piece placement and side to move. Whatever the original rejects with `ILLEGAL` (no king, pawn on the back rank, impossible material, side not to move in check, plus any further conditions found in Phase 1) is rejected. Do not add stricter or looser checks of our own, except where FEN-level validity is required (e.g. two kings on one side, if the original doesn't check that). Log any such addition in `DEVIATIONS.md`.
-3. **Castling rights**: the original can castle only with an untouched king and rook. A FEN castling right is accepted if the king and that rook are on their original squares. It then maps to the original's "unmoved" state, which is reachable in the original by setting up from the new-game position. A right whose king or rook is elsewhere is malformed FEN and is rejected. Whether the reverse case (K and R on home squares *without* the right) is representable depends on Phase 1. If it is not, reject.
-4. **En passant square**: the original cannot accept an en passant capture right after set-up. It can reach the position the way the manual describes, by setting up the preceding position and playing the double pawn step. So reconstruct the predecessor (pawn back two squares, side to move flipped), check it with step 2, and play the double step through the original's move path. If the predecessor is invalid, reject.
-5. **Moves**: apply `moves …` through the ported game-move path, which is the one the original uses for user moves. It accepts user under-promotions, as the manual states. Any move the original would refuse as `ILLEGAL` rejects the position.
-6. **Counters**: the original restarts move numbering at 10 after set-up and has no way to enter a 50-move count. So FEN halfmove and fullmove fields are parsed but not loaded. Draw detection behaves exactly as the original's would after set-up plus the given moves. Document this in `UCI.md`. It is not a deviation.
+The original accepts a position only through a new game or set-up mode (key C). FEN loading drives the port's implementation of that same code, the way a user following the manual would. The steps run in this order, and the first failure rejects the whole `position` command.
 
-**On rejection**: print `info string error: position rejected: <reason>`. Mark the engine as having no valid position, and on the next `go`, reply with `bestmove 0000`. Never crash, hang or silently substitute another position.
+1. **Parse the FEN** strictly; malformed FEN is rejected.
+2. **Standard start position.** If the FEN is the standard start position (White to move, `KQkq`, no en passant square), it is a **new game**: the book is allowed and the move number is 1. Skip to step 6.
+3. **Canonical set-up construction.**
+   1. Start from a new game.
+   2. **Keep untouched** every new-game piece that the FEN has on the same square, with these exceptions:
+      - a king is kept only if its side keeps at least one castling right;
+      - a rook on a corner is kept only if the matching castling right is present;
+      - otherwise that king or rook is removed and re-entered, so it counts as moved.
+   3. Remove (U) every other new-game piece.
+   4. Enter (K/Q/R/B/N/P with the colour toggle) every remaining FEN piece, scanning in the original's order: file a…h, rank 8 → 1.
+   5. Set the side to move and exit (E).
+
+   **Castling-rights check:** a FEN castling right whose king or rook is not on its home square is malformed, and is rejected.
+4. **The original's exit check** (SetupExit `$6ECC` and AssignSlot) decides legality. It rejects if any of these hold:
+   - a pawn is on rank 1 or 8;
+   - there is no free slot for a piece (too many of a type: pawns plus surplus pieces > 8, or a second king);
+   - either king is missing;
+   - the side not to move is in check.
+
+   Add no checks of our own beyond FEN syntax.
+5. **En passant square.** The original cannot accept en passant right after set-up, but it can reach the position through the manual's recipe, so the port does the same:
+   1. Construct the predecessor (the pawn two squares back, the other side to move).
+   2. Run steps 3–4 on it.
+   3. Play the double step through the game-move path.
+
+   If the predecessor fails, reject.
+6. **Moves.** Apply the `moves …` list through the original's human-move path:
+   1. generate the root list (`$78CE` with IX = `$BD58`);
+   2. score it statically (`$7B96`);
+   3. find the move with `$7BCD`; it must have a non-zero score;
+   4. PlayMove (`$6323`), with the UCI promotion suffix selecting Q/R/B/N as the original's PROMOTE TO? prompt does.
+
+   A move the original would answer with `ILLEGAL` rejects the position.
+7. **Counters.** The FEN halfmove and fullmove fields are parsed but not loaded. The original restarts at move 10 with zero counters after set-up. Document this in `UCI.md`; it is original behaviour, not a deviation.
+
+**On rejection:** print `info string error: position rejected: <reason>` and mark the engine as having no valid position. The next `go` replies `bestmove 0000`. Never crash, hang or silently substitute another position.
 
 ### 9.5 Levels and time
 
-**`Level = UCI` (default):** time comes from the `go` parameters.
-- `wtime/btime/winc/binc/movestogo` → a per-move budget fed into **the original's own termination mechanism**, in place of the level's time parameter. The rule is: target = remaining / (`movestogo`, or 30 if absent) + 0.75 × increment, then capped at 1/3 of remaining minus a fixed safety margin. Phase 1 may show the original uses a target plus a hard limit, or similar. In that case derive both from the clock with the same ratio the original's levels use, and record the formula in `UCI.md`.
-- `movetime` → budget fixed at that value.
-- `depth N`, `nodes N` → stop exactly when the original's iteration/node accounting reaches it. This is the deterministic test mode.
-- `infinite` → search until `stop`.
-- `mate N` with N = 1, 2 or 3 → the original problem-mode search P*N*. With N > 3 → `info string mate search limited to 3`, then search at P3.
-- **Time-forfeit guard:** if the original only checks for termination between iterations, a late iteration can overrun badly at modern speeds. In that case, add a hard-limit check at the original's keyboard-poll point that behaves exactly like a keypress interrupt. This counts as a class B fix (missing move), so log it.
+The original has no clock (§3), so a level is a search shape, and on modern hardware every level finishes in milliseconds.
 
-**`Level = Level 1 … Level 8`:** reproduce the original level exactly. The level's own parameters drive termination, using real wall-clock seconds in place of the Spectrum clock. `wtime/btime/winc/binc/movestogo/movetime/depth/nodes` are ignored. Clock safety is the user's choice when they select a fixed level. Two exceptions:
-- `stop` acts as the keypress interrupt.
-- `infinite` searches until `stop`, because UCI forbids sending `bestmove` before `stop` in infinite mode.
+- **`Level = UCI` (default):**
+  - **Choosing a level:** each `go` picks the **highest original level, 1–8, whose predicted time fits the move budget**. In practice this is Level 8 except in extreme bullet. The prediction uses the measured node rate and per-level worst-case node counts (calibrated from oracle statistics and recorded in `UCI.md`).
+  - **Budget:** from `wtime/btime/winc/binc/movestogo` the budget is remaining / (`movestogo` or 30) + 0.75 × increment, capped at a third of the remaining time minus a safety margin. `movetime` sets the budget directly.
+  - **Hard limit:** if the search outlasts the hard limit anyway, the abort flag is set exactly as a key press (DEV-007).
+  - **`go depth N`:** plays Level min(N, 8). This is the deterministic test mode.
+  - **`go nodes N`:** runs Level 8 and aborts at the N-th node entry.
+  - **`go mate N`:** N = 1, 2, 3 runs P1, P2, P3. N > 3 gives `info string mate search limited to 3`, then P3.
+  - **`go infinite`:** runs Level 8, then holds `bestmove` until `stop`, because UCI forbids sending it earlier.
+- **`Level = Level 1 … Level 8`:** exactly that level, with clock parameters ignored. `stop` is the key press. With `infinite`, the result is held until `stop`.
+- **`Level = Level P1/P2/P3`:** the original problem search. If `$BCA0` < `$FE` afterwards, print `info string NO MATE FOUND` and send `bestmove 0000`, because the original makes no move.
+- **Opening book:** probed exactly as the original does, when `OwnBook` is true. That means games from the standard start only, in every level, unless `searchmoves` (next-best mode) is active.
 
-**`Level = Level P1/P2/P3`:** the original problem-mode search. It runs until it finds a mate or proves there is none, and `stop` interrupts it. If there is no mate, print `info string NO MATE FOUND` and send `bestmove 0000`, because the original makes no move. Time parameters are ignored.
+### 9.6 Game state between commands
 
-**Opening book:** used in UCI and Levels 1–8 when `OwnBook` is true, exactly as the original uses it. The book is not used in problem levels unless Phase 1 shows the original does.
+The engine behaves like one original program left running in HUMAN v CYRUS mode.
+
+- **The memory image persists across commands.** That includes `$BCA0`, `$BCCE`, `$BD4A`, the game record, the book state and the stale workspace. Nothing is reset that the original would not reset.
+- **`ucinewgame`** = the original's new game (G, Y). Like the original, it does not reset `$BCA0`.
+- **After `go`:** the engine plays its `bestmove` into its own game through PlayMove, as the original does.
+- **The next `position`:** if its move list extends the engine's current game (same start, and the moves so far are a prefix), only the new moves are applied (step 6 of §9.4). Otherwise the position is rebuilt from scratch, as a user of the original would: a new game or set-up, then the moves entered.
+- **`$BCCE`** is set from the PRNG at each `go` (DEV-006).
 
 ---
 
 ## 10. Testing strategy
 
-All of the following run via `zig build test` (fast subset) or `zig build test-full`.
+All of the following run via `zig build test` (fast subset) or `zig build test-full`, reading committed golden files.
 
-1. **Unit tests**: inline `test` blocks next to the code they test.
-2. **Reference integrity**: hashes of `reference/` match `CHECKSUMS.txt`. Generated tables and book data match the binary byte for byte.
-3. **Differential tests** (`tools/diff/`), Zig vs oracle: movegen order, make/unmake state, attack detection, set-up legality verdicts, exact evaluation, quiescence, fixed-depth search (move, score, PV, nodes), problem search, level termination with injected stop, and book selection. On mismatch the driver prints the first divergent node: the path from the root, both move lists and both scores.
-4. **Perft**: compare against true perft *and* against oracle perft. Differences from true perft that the oracle shares are original behaviour. Classify each as B (reaches output, fix at root) or C (internal, preserve).
-5. **Protocol tests**: scripted UCI sessions, including:
-   - `stop` immediately after `go`; `go wtime 10`; `isready` mid-search;
-   - every `Level` value, including switching levels between games;
-   - `go mate 1..5`; `go infinite` under a fixed level; `searchmoves`;
-   - rejected positions followed by `go` (expect `bestmove 0000`);
-   - repeated `position`/`go` without `ucinewgame`; malformed input.
-6. **Rejection corpus** (`tests/positions/reject.epd`): positions with the expected verdict and reason, covering every condition in §9.4.
-7. **Stress and match tests**: self-play and gauntlets under `fastchess`, so any crash or illegal move is a failure. Run with the `ReleaseSafe` build.
-8. **Corpora** in `tests/positions/`: `opening.epd`, `middlegame.epd`, `endgame.epd`, `tactics.epd`, `mate1-3.epd` (problem levels, including no-mate cases), `edge.epd`, `reject.epd`, and `searchtree.epd` (positions harvested from inside oracle search trees).
+1. **Unit tests:** inline `test` blocks.
+2. **Reference integrity:** hashes of `reference/` match `CHECKSUMS.txt`, and the memory image's tables and book match the binary.
+3. **Differential tests**, Zig against golden files, for every Phase 3 row. On a mismatch, print the first divergent step (for the search, the index into the make sequence, with ply, from and to on both sides).
+4. **Perft:** against true perft *and* against oracle perft. Divergences the oracle shares are original behaviour; classify each as B (fix at the root) or C (preserve).
+5. **Protocol tests:** scripted UCI sessions, including:
+   - `stop` straight after `go`; `go wtime 10`; `isready` mid-search;
+   - every `Level` value; `go depth 1..8`; `go mate 1..5`; `go infinite`; `searchmoves`;
+   - rejected positions followed by `go`;
+   - incremental versus rebuilt `position` sequences;
+   - malformed input.
+6. **Rejection corpus** (`tests/positions/reject.epd`): each position with the expected verdict and reason, covering every condition in §9.4.
+7. **Stress and match tests:** self-play and gauntlets under `fastchess` with the `ReleaseSafe` build.
+8. **Corpora** (`tests/positions/`): opening, middlegame, endgame, tactics, mate-in-1/2/3 (including no-mate cases), edge cases, ≥ 127-move positions, and positions harvested from inside oracle search trees.
 
 ---
 
 ## 11. Zig conventions
 
 - Zig 0.17.0 (§5). Run `zig fmt` before committing.
-- **No heap allocation in the search path.** All engine state lives in fixed-size arrays sized by `src/limits.zig`. Those sizes mirror the original's capacities plus any class-A fixes.
-- Use explicit integer types that match the original's widths (`u8`, `i8`, `u16`, `i16`). Use `+%`, `-%` and `*%` only where the original wraps *and* behaviour depends on it, and leave a comment saying so. Everywhere else, use normal operators so safety checks stay active.
+- **The memory image is the state.** Use named address constants (`mem.BOARD = 0xBD00`, `mem.CUR_PLY = 0xBCA9`, …) with the original label in a comment. Do not shadow image state in Zig structs: any cached copy is a fidelity risk.
+- **No heap allocation in the search path.**
+- **Integer widths:** use explicit types matching the original (`u8`, `i8`, `u16`). Use wrapping operators only where the original wraps *and* behaviour depends on it, and say so in a comment. Elsewhere, normal operators keep safety checks active.
 - Use `@intCast`/`@truncate` deliberately, with a comment when narrowing is intended original behaviour.
-- Use descriptive Zig names, and put the original disassembly label and address in the doc comment.
-- Use `comptime` only for *derived* values. Values extracted from the binary are generated into source files by `tools/extract`, so they can be reviewed in diffs.
-- Errors: UCI and FEN parsing return error unions and never panic. The ported core uses `unreachable` only where the original's logic guarantees it, and that must be proved by tests.
-- Build modes: `Debug`/`ReleaseSafe` for development and testing, `ReleaseFast` for release.
+- **Naming:** descriptive Zig names. The original label and address go in the doc comment.
+- **Errors:** UCI and FEN parsing return error unions and never panic. The ported core uses `unreachable` only where the original's logic guarantees it, proved by tests.
+- **Build modes:** `Debug`/`ReleaseSafe` for development and testing, `ReleaseFast` for release.
 
 ---
 
 ## 12. How to work a task
 
 1. Pick the next unverified row in `docs/PORT_STATUS.md`. Do not skip ahead of the phase order.
-2. Read the relevant disassembly section and `ORIGINAL_ARCHITECTURE.md`. If the architecture document is wrong or incomplete, fix it first, citing addresses.
-3. Write the differential test first, then the port.
-4. Iterate until the test matches the oracle on the full corpus. A mismatch is *always* assumed to be a porting error until the oracle trace proves otherwise.
+2. Read the relevant `docs/arch/` section, the disassembly (`disasm/cyrus.skool`) and the Python model if there is one. If a spec is wrong or incomplete, fix it first, citing addresses and evidence.
+3. Generate or extend the golden files, then write the differential test, then the port.
+4. Iterate until the test matches on the full corpus. A mismatch is *always* assumed to be a porting error until the oracle proves otherwise.
 5. Update `PORT_STATUS.md`. Add `DEVIATIONS.md` and `OBSERVATIONS.md` entries if relevant.
-6. Commit small, with messages like `port: GENMOV captures ($7A10–$7A6F), oracle-verified on 52k positions`.
+6. Commit small, with messages like `port: GenMoves ($78CE–$79C7), golden-verified on 52k positions`.
 
-**Definition of done for any ported routine:** it cites its original address, is oracle-verified on the full corpus, has no `UNVERIFIED` tags, adds no safety panics under stress, and has an up-to-date status row.
+**Definition of done for any ported routine:** it cites its original address, matches the golden files on the full corpus, has no `UNVERIFIED` tags, adds no safety panics under stress, and has an up-to-date status row.
 
 When you are stuck, write down what you know, what you tried and the exact address in question in `docs/OPEN_QUESTIONS.md`. Do not paper over it with a guess.
 
@@ -445,8 +451,14 @@ When you are stuck, write down what you know, what you tried and the exact addre
 2. **Binaries:** committed to the repository. The program is treated as abandonware.
 3. **Illegal moves:** fixed (class B, §8.2).
 4. **Unsupported positions:** rejected, not accommodated (class D, §9.4).
-5. **Levels:** exposed as the UCI combo option `Level`. The default is `UCI` (standard UCI time controls), followed by `Level 1`–`Level 8` and `Level P1`–`P3` (§9.5).
+5. **Levels:** exposed as the combo option `Level`. The default is `UCI`, followed by `Level 1`–`Level 8` and `Level P1`–`P3` (§9.5). UCI time options are accepted.
 6. **UCI identity:** `id name Cyrus IS Chess`, `id author Richard Lang`.
 
-### Open
-1. **What a fixed level means on modern hardware.** By default, `Level N` uses the original's *time* parameters in real seconds. Because modern hardware is about 10⁴× faster, Level 1 will search far deeper, and play far stronger, than on a Spectrum. The alternative is *Spectrum-equivalent* levels: stop at the node count the original would have reached in that time. This would be calibrated from oracle T-state measurements, and it would reproduce the historical playing strength and even the historical moves. That could be offered as extra combo values (e.g. `Level 2 (Spectrum speed)`). It needs an owner decision before Phase 5.
+### Proposed by the implementer after Phase 1 (to be confirmed by the owner)
+1. **Oracle:** SkoolKit's simulator plus committed golden files, rather than a new Zig Z80 core (§6 Phase 2).
+2. **Memory-image architecture** for the port (§6 Phase 3). Phase 1 showed that stale data and the memory layout are behaviour.
+3. **`Level = UCI`:** picks the highest original level that fits the time budget, so effectively Level 8. `go depth N` = Level N (§9.5).
+4. **FEN loading:** the canonical set-up construction in §9.4, and the game continuity rules in §9.6.
+
+### Resolved
+- *Spectrum-speed levels:* moot. The original has no clock; levels are search shapes, so each level plays the same moves on any hardware.

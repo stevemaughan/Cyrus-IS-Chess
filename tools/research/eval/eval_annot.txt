@@ -1,0 +1,651 @@
+; ===================================================================
+; $8400 Evaluate
+; ===================================================================
+L $8400 Evaluate
+c $8400 Evaluate the position after a move
+D $8400 Static evaluation of the current position from the point of view of the side that has just moved (the side NOT to move in bit 0 of $BD2D). Called after every make-move in the search and at the root. It builds attack maps for both sides in the piece records (bytes +2..+5), scores mobility, development, pawn structure and king safety, runs a static exchange evaluation (SEE) on every attacked piece, and combines material change, threats, positional score and a small random term into one unsigned byte. See docs/arch/50-eval.md for the full specification.
+D $8400 Register conventions inside the evaluation: main H=$BD (board page), main D = off-board mask $88 (pawn direction $11/$F1 while scanning pawns), main E = positional accumulator, main B = square of the piece being scanned, main C = ray direction. A' = king/pawn accumulator. Alternate set: H'=$BE (piece-record page), L' = record pointer (a piece code points at record+4), C' = attack weight of the scanning piece (pawn 1, minor $04, rook $10, queen $40), E' = line mask ($08 orthogonal, $C4 diagonal), B' = pass flags (bit 7 colour being scanned, bit 4 second pass, bit 5 pin list non-empty, bit 6 check seen, bit 0..bit 3 game phase from $BD2D).
+D $8400 If the side to move can capture the enemy king (or the kings touch) the routine aborts through #R$8C28, which restores SP from $BD3D and returns A=0.
+R $8400 IX Move-list entry of the move just made (+2 to-square read, +3 flags updated)
+R $8400 O:A Score: $80 = level, higher is better for the side that has just moved; $02/$FC on large material swings; 0 if the move was illegal
+R $8400 O:B Positional component (signed, mover's view), used by #R$7810
+  $8400 Save SP so that #R$8C28 can abort from any depth
+  $8404 A'=0 (king/pawn accumulator), E=0 (positional accumulator)
+  $8407 H=$BD (board page)
+  $8409 H'=$BE (piece-record page)
+  $840C A=side/phase flags rotated: bit 7=side to move (1=White), bit 0..bit 3=phase bits
+  $8410 IY=pawn routine: #R$8A7A normally,
+  $8414 #R$8A6F when total material is below $34,
+  $841C #R$8A2B when it is below $28
+  $8424 B'=pass flags: bit 7=colour scanned first (side to move), Carry=side to move is White
+  $8427 Back to the main set
+  $8428 White to move: scan White first (#R$883A)
+N $842B Scan Black's pieces (queen, rooks, bishops, knights, then pawns), accumulating attacks in the records and positional score in E/A'.
+L $842B EvBlackPieces
+  $842B D=$88 (off-board mask)
+  $842D Black queen (if not captured)
+  $8434 Black rooks
+  $8442 Black bishops
+  $8450 Black knights
+  $845E D=$F1 (black pawns attack down the board); B=C=$FF (no previous pawn files)
+  $8463 Black pawns a..h (records $BEC0..$BEF8; the d- and e-pawn records use #R$8A54)
+  $84A3 Second pass done?
+  $84A4 No: switch colour and scan White (#R$882C)
+N $84A9 Both sides scanned. Finish the positional score, then evaluate exchanges on every attacked piece.
+L $84A9 EvScoreExchanges
+  $84A9 Skip if a check was seen (bit 6 of B')
+  $84AD L=piece code on the move's to-square
+  $84B3 If a piece stands there,
+  $84B7 set bit 1 of its record +5 ('moved piece' marker for the SEE penalty)
+  $84BA Late endgame (bit 3 of B')?
+  $84BF Yes: halve E, or quarter it if there are no pawns ($BD6D=0)
+  $84CB Pin list non-empty (bit 5 of B')?
+  $84CD If so, remove the pinned pieces' illegal attacks (#R$8E74)
+  $84D1 E = A'/4 + E + $BD4A (positional score, Black's view)
+  $84DC $BD39/$BD3A = 0 (best and second-best SEE gain), save IX in $BD3B
+  $84E6 Black queen: if attacked (+2/+3 non-zero), SEE with value 9; clear its attack bytes
+  $84FC Black rook (a): SEE with value 5
+  $8512 Black rook (h): SEE with value 5
+  $8528 Black bishop (c): SEE with value 3
+  $853E Black bishop (f): SEE with value 3
+  $8554 Black knight (b): SEE with value 3
+  $856A Black knight (g): SEE with value 3
+  $8580 Black pawn records a..h: SEE with value = low nibble of the type byte (1, or the promoted piece's value)
+  $8638 E = -E (White's view)
+  $863B Keep Black's best/second gains on the stack; reset $BD39/$BD3A
+  $8645 White queen: SEE with value 9
+  $865B White rook (a): SEE with value 5
+  $8671 White rook (h): SEE with value 5
+  $8687 White bishop (c): SEE with value 3
+  $869D White bishop (f): SEE with value 3
+  $86B3 White knight (b): SEE with value 3
+  $86C9 White knight (g): SEE with value 3
+  $86DF White pawn records a..h: SEE with value from the type byte
+N $8797 Combine. D,E = gains available against Black's pieces (second, best); H,L = against White's pieces (second, best). Arrange them as threats against the side to move (D,E) and against the mover (H,L), and take material from the mover's view.
+  $8797 B = positional score (White's view); restore IX
+  $879C D,E = Black's pieces (second, best); H,L = White's pieces
+  $87A0 White to move?
+  $87A6 Yes: mover is Black: negate B, swap the threat pairs, A = $BD0D (material change, Black's view)
+  $87B0 No: mover is White: A = -$BD0D
+  $87B5 A = 2*(material - best gain the side to move has against the mover)
+  $87B7 Any such gain?
+  $87BB Yes: flag the move (bit 1 of IX+3)
+  $87BF If the gain is 2 or more, A=A-1
+  $87C2 A = A - second gain
+  $87C3 Mover threatens something of the side to move?
+  $87C7 Skip the bonus if the moved piece itself is en prise (bit 2 of IX+3)
+  $87CD B=B+2
+  $87CF A second threat?
+  $87D3 Yes: flag a double threat (bit 6 of IX+3), B=B+2
+  $87D9 A gain of 2 or more on the second threat: B=B+2
+  $87E2 If mover's best threat exceeds the side to move's best capture, flag bit 6 of IX+3
+N $87ED Scale: material outside -28..27 half-pawns saturates the score.
+  $87ED Material component in range?
+  $87F6 No: return $02 (losing) or $FC (winning)
+  $87FD C = material * 4 (8 per pawn)
+  $8800 D = (B + B/2 + carry)/2 (positional * 3/4)
+  $8807 Increment the random byte $BCCE; add its bit 0 (bit 0..bit 1 on move 1)
+  $8819 Clamp the positional term to -12..+12
+  $8828 A = material + positional + $80
+L $882C EvSwitchToWhite
+  $882C Second pass: B' bit 4 set, colour flipped to White
+  $8830 E = -E
+  $8834 H=$BD; A' = -A'
+N $883A Scan White's pieces, then both kings.
+L $883A EvWhitePieces
+  $883A White queen (if present)
+  $8843 White rooks
+  $8851 White bishops
+  $885F White knights
+  $886D D=$11 (white pawns attack up the board); B=C=$FF
+  $8872 White pawns a..h (d- and e-pawn records use #R$8A54)
+  $88B2 White king (#R$8978: early-queen check, then #R$897D)
+  $88B8 A' = -A', E = -E (Black's view)
+  $88BF Black king (B' bit 7 set = black)
+  $88C8 Second pass done?
+  $88CE No: set the second-pass flag and scan Black (#R$842B)
+; ===================================================================
+L $88D4 EvKingCentralise
+c $88D4 Late endgame king: centralisation
+D $88D4 Used by #R$8943 when there are no pawns ($BD6D=0) and the king belongs to the side favoured by $BD1E. Adds a centralisation term to A': D (the king's diagonal edge distance * 8, or -10 if 0) plus 16 on files d/e or ranks 4/5, plus 8 on files c/f or ranks 3/6.
+R $88D4 A $BD6D
+R $88D4 D King's edge distance * 8 (from type bit 6..bit 7)
+R $88D4 L King's square
+  $88D4 Pawns on the board: just add D (#R$896F)
+  $88D8 D=0: use -10
+  $88DF Files d,e?
+  $88E8 Ranks 4,5?
+  $88F3 Yes: A' = A' + 16 + D
+  $88F9 Files c,f?
+  $8904 Ranks 3,6?
+  $890F Yes: A' = A' + 8 + D
+L $8915 EvEarlyQueenCheck
+c $8915 Opening: penalise early queen moves
+D $8915 Used by #R$8978 before move 8. C = 9 - move number; a queen that has moved (bit 4 of its type byte) and is still on the board costs its side C points of E.
+  $8915 C = 9 - $BD49
+  $891D Black queen moved and present: E=E+C
+  $892E White queen moved and present: E=E-C
+  $893F Continue with the king (#R$897D)
+L $8943 EvEndgameKing
+c $8943 Endgame king evaluation
+D $8943 Used by #R$897D in the endgame (bit 2 of B'). Pawns next to the king are worth 8 each in A'; in the late endgame (bit 3) they are worth 4 and the king may be centralised.
+R $8943 A Pass flags (B')
+R $8943 H King's type byte
+R $8943 L King's square
+  $8943 Late endgame?
+  $8947 No: weight 8 per adjacent pawn
+  $894F Late: weight 4; D = edge distance * 8 (type bit 6..bit 7)
+  $8959 $BD1E = 0?
+  $895F Same sign as the colour being scanned: centralisation (#R$88D4) with A=$BD6D
+L $8966 EvEndgameKing2
+  $8966 D = D/2
+  $8968 $BD1E set and pawns present: just add D
+  $896B Otherwise a king with bit 7 of its type set gets +8 (#R$890F)
+  $896F A' = A' + D
+  $8972 Scan the king's neighbours (#R$89AC)
+L $8978 EvWhiteKing
+c $8978 Evaluate the white king
+D $8978 Used by #R$8400. Before move 8 (bit 0 of B' clear) first applies the early-queen penalty (#R$8915).
+R $8978 H King's type byte
+R $8978 L King's square
+  $8978 Move 8 reached?
+L $897D EvKing
+c $897D Evaluate a king (middlegame)
+D $897D Used by #R$8400 (black king) and #R$8978. The king's type byte: bit 4 moved, bit 5 castled, bit 6..bit 7 distance from the edge along the diagonals (0..3, maintained by #R$8200).
+R $897D H King's type byte
+R $897D L King's square
+  $897D A=pass flags; endgame?
+  $8983 Castled?
+  $8988 Castled but away from the edge: exposed (#R$89FB)
+  $898D Castled: pawn-shelter weight 10
+  $8990 Look two ranks ahead (or behind, if that leaves the board) on files f-1..f+1
+  $899B Any pawn there (piece code bit 6)?
+  $89A9 None: E=E-2
+  $89AB Restore L
+L $89AC EvKingNeighbours
+  $89AC Left neighbour (no file check: may read an off-board byte)
+  $89B2 Right neighbour
+  $89B8 Rank above (if on the board): centre, right, left
+  $89CF Rank below (if on the board): centre, right, left
+L $89E2 EvKingNeighbourSquare
+c $89E2 King: process a neighbouring piece
+D $89E2 Used by #R$897D. Counts the king as a defender (+1 in record +5) of a friendly neighbour or an attacker (+1 in record +3) of an enemy one, and adds the shelter weight C to A' if the neighbour is a pawn record (either colour). Kings next to each other abort the evaluation.
+R $89E2 A Piece code
+R $89E2 C Shelter weight
+  $89E2 L'=record+5
+  $89E5 Friendly?
+  $89E9 Enemy king next to this king: abort
+  $89EF Enemy: L'=record+3
+  $89F1 Count the king attack/defence
+  $89F2 Pawn record ($40-$7F, $C0-$FF)?
+  $89F7 Yes: A' = A' + C
+L $89FB EvKingExposed
+c $89FB King away from the edge or uncastled
+D $89FB Continuation of #R$897D.
+  $89FB Shelter weight 4
+  $89FD Edge distance 2 or more: E=E-2
+  $8A04 E=E-3
+  $8A07 Scan neighbours
+L $8A0D EvKingUncastled
+  $8A0D King moved?
+  $8A11 Never moved: weight 0, E=E+1
+  $8A1A Moved without castling: E=E-6, weight 8
+  $8A20 Away from the edge: further penalty (#R$89FB)
+  $8A25 Scan neighbours
+; ===================================================================
+L $8A2B EvPawnLateEndgame
+c $8A2B Pawn: late-endgame advancement bonus
+D $8A2B Reached through JP (IY) from #R$8A5B when total material is below $28. A' gains the pawn type byte / 4 (0, 4, 12, 24 or 36 for relative ranks <=3, 4, 5, 6, 7). In the first pass a pawn on its seventh rank records the piece in front of it in $BD4E.
+R $8A2B H Pawn type byte
+R $8A2B L Square diagonally ahead-right (pawn square + D)
+  $8A2B A' = A' + type/4
+  $8A32 Seventh-rank pawn (type bit 7)?
+  $8A37 Only in the first pass
+  $8A3D $BD4E = contents of the square in front of the pawn
+  $8A45 Mark its attacks (#R$8A7C)
+L $8A48 EvPawnDoubled
+c $8A48 Pawn penalties
+D $8A48 Continuations of #R$8A54/#R$8A5B.
+  $8A48 Doubled pawn: E=E-3
+L $8A4E EvPawnCentreUnmoved
+  $8A4E Unmoved centre pawn: E=E-3
+L $8A54 EvCentrePawn
+c $8A54 Evaluate a d- or e-pawn record
+D $8A54 Used by #R$8400 for the d- and e-pawn records. A pawn standing on rank 2 or rank 7 (either colour) costs 3.
+R $8A54 H Type byte
+R $8A54 L Square
+  $8A54 (rank+2) AND 4 = 0, i.e. on rank 2 or 7?
+L $8A5B EvPawn
+c $8A5B Evaluate a pawn record
+D $8A5B Used by #R$8400. Dispatches promoted pieces to the piece routines, penalises a pawn on the same file as either of the previous two pawn records scanned, then jumps through IY to add the phase-dependent advancement bonus and mark the pawn's two attacked squares.
+R $8A5B B,C File of the previous two pawn records ($FF = none)
+R $8A5B D Pawn direction $11 (White) or $F1 (Black)
+R $8A5B H Type byte
+R $8A5B L Square
+  $8A5B Promoted (type bit 1..bit 3)?
+  $8A60 L = square diagonally ahead-right; A = its file nibble (= the pawn's file + 1)
+  $8A65 Same file as one of the previous two pawns: doubled (#R$8A48)
+L $8A6B EvPawn2
+  $8A6B Remember the file; continue at IY
+L $8A6F EvPawnEndgame
+c $8A6F Pawn: endgame advancement bonus
+D $8A6F Reached through JP (IY) when total material is below $34: A' gains type/8 (0, 2, 6, 12 or 18 for relative ranks <=3..7).
+  $8A6F Unadvanced pawn: no bonus
+  $8A73 A' = A' + type/8
+L $8A7A EvPawnAttacks
+  $8A7A H=$BD
+L $8A7C EvPawnAttacks2
+  $8A7C Piece diagonally ahead-right?
+  $8A81 Piece diagonally ahead-left (L-2)? (no board-edge checks)
+L $8A85 EvPawnHit
+c $8A85 Pawn attacks a piece
+D $8A85 Used by #R$8A5B. Adds 1 to the defender count (+4) of a friendly piece or to the attacker count (+2) of an enemy piece.
+R $8A85 A Piece code
+  $8A85 L'=record+4
+  $8A87 Friendly?
+  $8A8B Enemy king: check (#R$8ABA)
+  $8A90 Enemy: L'=record+2
+  $8A92 Count the pawn
+L $8A96 EvPromotedPawn
+c $8A96 Evaluate a promoted pawn record as its new piece
+D $8A96 Continuation of #R$8A5B. Saves B, C, D, pushes the return stub #R$8AB5 and dispatches on the type byte: queen, rook, bishop or knight (no development penalty).
+  $8A96 Save pawn state; return via #R$8AB5
+  $8A9C C=type, H=$BD, D=$88
+  $8AA1 Queen?
+  $8AA7 Rook?
+  $8AAC Bishop?
+  $8AB2 Knight
+L $8AB5 EvPromotedPawnReturn
+c $8AB5 Return from a promoted piece
+D $8AB5 Restores D (pawn direction) and B, C (pawn files) but keeps E.
+  $8AB5 Restore DE but keep E
+  $8AB9 Restore BC and return
+L $8ABA EvPawnGivesCheck
+c $8ABA Pawn attacks the enemy king
+D $8ABA Continuation of #R$8A85. In the first pass the side to move could capture the king: abort. Otherwise flag the move as a check (bit 7 of IX+3) and add 1 to E.
+  $8ABA First pass: abort
+  $8ABF Flag check on the move
+  $8AC3 E=E+1
+L $8AC6 EvSeeNoDirect
+c $8AC6 SEE: no direct attackers
+D $8AC6 Continuation of #R$8AD6. Without direct attackers the piece counts as attacked only if the enemy king (record +3 bit 0) is among the attackers; the x-ray attackers and the king are then fed to the exchange.
+  $8AC6 King among the x-ray attackers?
+  $8ACA No: nothing to do
+  $8ACD Yes: start the attacker generator on record +3
+L $8AD4 EvSeePawn
+c $8AD4 SEE for a pawn record
+D $8AD4 Used by #R$8400. A = type byte; the value is its low nibble.
+  $8AD4 A = value (type AND $0F)
+L $8AD6 EvSee
+c $8AD6 Static exchange evaluation of one piece
+D $8AD6 Used by #R$8400. Plays out the capture sequence on the piece using two coroutines: #R$8B50/#R$8B6A yield attackers in the order pawn, minor, rook, queen, x-ray minor, x-ray rook, x-ray queen, king (continuation in IY); #R$8BB9 yields defenders likewise (continuation in IX). The loop works in the alternate set with A = running gain, E' = lower bound, D' = upper bound, L' = current attacker value, H' = current defender value, C' = defenders left of that value; main D = attackers left of that value.
+D $8AD6 A positive result updates $BD39 (best) and $BD3A (second best). Any non-negative result costs E one point, three if the piece carries the moved/checking marker (+5 bit 1), which also flags bit 2 of IX+3.
+R $8AD6 A Piece value
+R $8AD6 B Record +5 (x-ray defenders, king defender bit 0, marker bit 1)
+R $8AD6 C Record +4 (defenders: pawns bit 0-1, minors bit 2-3, rooks bit 4-5, queens bit 6-7)
+R $8AD6 H Record +3 (x-ray attackers, king attacker bit 0)
+R $8AD6 L Record +2 (attackers: pawns bit 0-1, minors bit 2-3, rooks bit 4-5, queens bit 6-7)
+R $8AD6 O:HL 0 (written back to clear the record)
+  $8AD6 D' = value (upper bound)
+  $8AD9 No direct attackers? (#R$8AC6)
+  $8ADD First attacker: L' = value, main D = count
+L $8AE0 EvSeeStart
+  $8AE0 First defender: H' = value, C' = count
+  $8AE3 E' = -1 (lower bound); A = value (gain if the first attacker captures)
+L $8AE6 EvSeeLoop
+  $8AE6 B' = 0
+  $8AE8 No defender left: stop
+  $8AEC Defender recaptures: A = A - attacker value
+  $8AED One attacker of this value used; fetch the next kind when exhausted
+  $8AF3 Below the lower bound: B'=1
+  $8AF7 At or above the upper bound: B'=2
+  $8AFB Otherwise raise the lower bound
+L $8AFC EvSeeAttacker
+  $8AFC No attacker left: stop
+  $8B00 Attacker recaptures: A = A + defender value
+  $8B01 Below the lower bound: B'=B'-1, stop if 0
+  $8B05 At or above the upper bound: B'=B'-2, stop if 0
+  $8B09 Otherwise lower the upper bound
+  $8B0A One defender used; fetch the next kind when exhausted
+  $8B0E Next round
+  $8B11 B'=2 / B'=1
+  $8B16 B'=B'-2 / B'=B'-1; continue unless 0
+L $8B1A EvSeeResult
+  $8B1A A = max(A, lower bound)
+  $8B1F A = min(A, upper bound)
+  $8B24 Negative: piece is safe, return HL=0
+  $8B29 Zero: no gain, but still penalised
+  $8B2B Keep the best gain in $BD39,
+  $8B34 and the second best in $BD3A
+L $8B39 EvSeePenalty
+  $8B39 E=E-1 for a piece under attack
+  $8B3A Moved/checking piece (+5 bit 1)?
+  $8B3E No: return HL=0
+  $8B42 Yes: restore IX, flag bit 2 of IX+3 (moved piece en prise), E=E-2
+L $8B50 EvAttackerGen
+c $8B50 SEE coroutine: direct attackers
+D $8B50 Used by #R$8AD6. Yields each non-empty attacker group of record +2 (main L) in increasing value, then continues with the x-ray byte +3 (#R$8B6A). Each yield (#R$8B84...#R$8BB1) stores the continuation in IY, sets L'=value and main D=count, and returns with the alternate set active and A/A' swapped. Exhausted: L'=0.
+  $8B50 Pawns
+  $8B55 Minor pieces
+  $8B5B Rooks
+  $8B61 Queens
+  $8B67 X-ray byte empty: finished
+L $8B6A EvXrayAttackerGen
+c $8B6A SEE coroutine: x-ray attackers
+D $8B6A Used by #R$8AC6 and continuation of #R$8B50. Groups of record +3 (main H): minors, rooks, queens, then the king (bit 0).
+  $8B6A X-ray minors
+  $8B6F X-ray rooks
+  $8B75 X-ray queens
+  $8B7B King
+L $8B80 EvAttackersDone
+  $8B80 No more attackers: L'=0
+L $8B84 EvYieldPawnAttackers
+c $8B84 Yield pawn attackers
+D $8B84 Coroutine yield used by #R$8B50.
+  $8B84 D=count; IY=continuation
+  $8B87 L'=1 (pawn)
+L $8B8C EvNextAttacker
+c $8B8C Resume the attacker coroutine
+D $8B8C Used by #R$8AD6 when the current attacker group is used up.
+  $8B8C Save the SEE state and resume at IY
+L $8B91 EvYieldMinorAttackers
+c $8B91 Yield minor-piece attackers
+D $8B91 Coroutine yield used by #R$8B50 and #R$8B6A.
+  $8B91 D=count (bit 2-3); IY=continuation
+  $8B96 L'=3
+L $8B9B EvYieldRookAttackers
+c $8B9B Yield rook attackers
+D $8B9B Coroutine yield used by #R$8B50 and #R$8B6A.
+  $8B9B D=count (bit 4-5); IY=continuation
+  $8BA2 L'=5
+L $8BA7 EvYieldQueenAttackers
+c $8BA7 Yield queen attackers
+D $8BA7 Coroutine yield used by #R$8B50 and #R$8B6A.
+  $8BA7 D=count (bit 6-7); IY=continuation
+  $8BAC L'=9
+L $8BB1 EvYieldKingAttacker
+c $8BB1 Yield the king as attacker
+D $8BB1 Coroutine yield used by #R$8B6A.
+  $8BB1 D=1; IY=continuation
+  $8BB4 L'=13
+L $8BB9 EvDefenderGen
+c $8BB9 SEE coroutine: defenders
+D $8BB9 Used by #R$8AD6. Yields defender groups from record +4 (main C) then x-ray defenders from +5 (main B): minors, rooks, queens and finally the king (bit 0), which also costs E one point when it is reached. Continuation in IX. Exhausted: H'=0.
+  $8BB9 No direct defenders?
+  $8BBE Pawns
+  $8BC3 Minors
+  $8BC9 Rooks
+  $8BCF Queens
+  $8BD5 X-ray byte empty: finished
+  $8BD8 X-ray minors
+  $8BDD X-ray rooks
+  $8BE3 X-ray queens
+  $8BE9 King
+L $8BEE EvDefendersDone
+  $8BEE No more defenders: H'=0
+L $8BF2 EvYieldPawnDefenders
+c $8BF2 Yield pawn defenders
+D $8BF2 Coroutine yield used by #R$8BB9.
+  $8BF2 C'=count, H'=1; IX=continuation
+L $8BFA EvNextDefender
+c $8BFA Resume the defender coroutine
+D $8BFA Used by #R$8AD6.
+  $8BFA Save the SEE state and resume at IX
+L $8BFF EvYieldMinorDefenders
+c $8BFF Yield minor defenders
+D $8BFF Coroutine yield used by #R$8BB9.
+  $8BFF C'=count, H'=3; IX=continuation
+L $8C09 EvYieldRookDefenders
+c $8C09 Yield rook defenders
+D $8C09 Coroutine yield used by #R$8BB9.
+  $8C09 C'=count, H'=5; IX=continuation
+L $8C15 EvYieldQueenDefenders
+c $8C15 Yield queen defenders
+D $8C15 Coroutine yield used by #R$8BB9.
+  $8C15 C'=count, H'=9; IX=continuation
+L $8C1F EvYieldKingDefender
+c $8C1F Yield the king as defender
+D $8C1F Coroutine yield used by #R$8BB9. Costs E one point.
+  $8C1F E=E-1
+  $8C20 C'=1, H'=13; IX=continuation
+L $8C28 EvAbort
+c $8C28 Abort the evaluation: illegal position
+D $8C28 Used when the side to move attacks the enemy king or the kings touch. Clears the pin list and the attack bytes (+2..+5) of records $BE08..$BEF8 (not the white king's), restores SP from $BD3D and returns A=0 to the caller of #R$8400.
+  $8C28 Empty the pin list
+  $8C2C Clear +2..+5 of 31 records
+  $8C3E Return 0 from #R$8400
+; ===================================================================
+L $8C43 EvQueen
+c $8C43 Queen attacks
+D $8C43 Used by #R$8400 and #R$8A96. Rook lines and diagonals with weight $40.
+R $8C43 A Square
+  $8C43 B=square; C'=$40
+  $8C47 Rook lines
+  $8C4A Diagonals (#R$8D89)
+L $8C4E EvRook
+c $8C4E Rook attacks
+D $8C4E Used by #R$8400 and #R$8A96.
+R $8C4E A Square
+  $8C4E B=square; C'=$10
+L $8C52 EvOrthogonals
+c $8C52 Scan the rook lines of a queen or rook
+D $8C52 Used by #R$8C43 and #R$8C4E. Horizontal rays do not count mobility; vertical rays add 1 to E for every square up to and including the first piece. The first piece hit is processed by #R$8C98 (horizontal) or #R$8C80 (vertical).
+R $8C52 B Square
+R $8C52 C' Weight
+  $8C52 E' = $08 (pieces that move orthogonally)
+  $8C55 East
+  $8C5F Piece hit (C=+1)
+  $8C64 West
+  $8C6E Piece hit (C=-1)
+  $8C73 North (if not on rank 8)
+  $8C7A South
+L $8C7D EvVerticalStep
+  $8C7D Next square; stop off the board
+L $8C80 EvVerticalSquare
+c $8C80 Vertical ray: next square
+D $8C80 Part of #R$8C52.
+  $8C80 Count mobility
+  $8C82 Empty: continue
+  $8C86 L'=record+4 of the piece; enemy (#R$8DB9)?
+  $8C8C Friendly: defender count +weight
+  $8C8F Also an orthogonal mover?
+  $8C93 No: done
+  $8C95 Yes: x-ray through it (#R$8DF8)
+L $8C98 EvHorizontalHit
+c $8C98 Horizontal ray: first piece hit
+D $8C98 Part of #R$8C52. Enemy pieces go to #R$8DB9; a friendly orthogonal mover is x-rayed to the next piece only (no mobility).
+R $8C98 A Piece code
+R $8C98 C Direction
+  $8C98 Enemy?
+  $8C9E Friendly: defender count +weight
+  $8CA1 Also an orthogonal mover?
+  $8CA5 No: done
+  $8CA7 Look beyond it
+  $8CAF Enemy beyond: x-ray attacker (#R$8E07)
+  $8CB5 Friendly beyond: x-ray defender (+5)
+L $8CBB EvBlackKnight
+c $8CBB Black knight
+D $8CBB Used by #R$8400. A knight on its back rank costs 3.
+R $8CBB A Square
+  $8CBB On rank 8?
+L $8CC2 EvKnightBackRank
+  $8CC2 Yes: E=E-3
+L $8CC8 EvWhiteKnight
+c $8CC8 White knight
+D $8CC8 Used by #R$8400.
+R $8CC8 A Square
+  $8CC8 On rank 1: penalty (#R$8CC2)
+L $8CCD EvKnight
+  $8CCD C'=$04; E=E-1 (mobility counts target squares - 1)
+L $8CD2 EvKnightWalk
+  $8CD2 Upward targets +14, +18, +31, +33 (skipped if the first leaves the top of the board)
+  $8CF5 Downward targets -14, -18, -31, -33 (stops as soon as one leaves the bottom)
+L $8D15 EvKnightTarget
+c $8D15 Knight target square
+D $8D15 Part of #R$8CC8. Counts mobility and marks the piece found.
+R $8D15 L Target square
+  $8D15 Count mobility; empty: done
+  $8D18 L'=record+4; friendly?
+  $8D1E Enemy king: check (#R$8D2A)
+  $8D23 Enemy: L'=record+2
+  $8D25 Add the weight
+L $8D2A EvKnightChecksKing
+c $8D2A Knight attacks the enemy king
+D $8D2A First pass: abort. Second pass: flag the move as a check (bit 7 of IX+3); a first check marks the checking piece (+5 bit 1) and adds 2 to E, a second (double check) clears $BD4E and adds $14 to A'.
+  $8D2A First pass: abort
+  $8D2F Flag check
+  $8D33 Already a check?
+  $8D3A First check: mark the checking piece (+5 bit 1)
+  $8D41 E=E+2
+L $8D44 EvKnightDoubleCheck
+  $8D44 Double check: $BD4E=0, A'=A'+$14
+L $8D4C EvSliderChecksKing
+c $8D4C Slider attacks the enemy king
+D $8D4C As #R$8D2A, then the ray carries on beyond the king (#R$8DAA), counting mobility.
+  $8D4C First pass: abort
+  $8D51 Flag check
+  $8D55 Already a check?
+  $8D5C First check: mark the checking piece (+5 bit 1)
+  $8D65 E=E+2; continue the ray
+  $8D6A Double check: $BD4E=0, A'=A'+$14; continue the ray
+L $8D74 EvWhiteBishop
+c $8D74 White bishop
+D $8D74 Used by #R$8400. A bishop on its back rank costs 3.
+R $8D74 A Square
+  $8D74 On rank 1?
+L $8D7A EvBishopBackRank
+  $8D7A E=E-3
+L $8D80 EvBlackBishop
+c $8D80 Black bishop
+D $8D80 Used by #R$8400.
+R $8D80 A Square
+  $8D80 On rank 8: penalty
+L $8D86 EvBishop
+  $8D86 C'=$04
+L $8D89 EvDiagonals
+  $8D89 E'=$C4 (pieces that move diagonally, and pawns)
+  $8D8C Up-left (+15)
+  $8D95 Up-right (+17)
+  $8D9E Down-right (-17)
+  $8DA7 Down-left (-15)
+L $8DAA EvRayStep
+  $8DAA Next square; stop off the board
+L $8DAF EvRaySquare
+c $8DAF Diagonal ray: next square and hits
+D $8DAF Part of #R$8D89 (also used after a king is passed). Every square up to and including the first piece adds 1 to E.
+  $8DAF Count mobility; empty: continue
+  $8DB3 L'=record+4; friendly (#R$8DEC)?
+L $8DB9 EvEnemyHit
+  $8DB9 Enemy king (#R$8D4C)?
+  $8DBE Attacker count +weight (record +2)
+  $8DC3 Enemy also moves along this line (record +6 AND E', not a pawn)?
+  $8DC9 No: look for what it shields (#R$8E19)
+  $8DCC Yes: look beyond it
+  $8DD5 D'=record+6 of the first piece; friendly beyond?
+  $8DDC Enemy beyond: x-ray attacker (+3)
+L $8DE1 EvPinTest
+  $8DE1 Piece beyond is a king (+6 bit 0): pin
+  $8DE7 A queen (+6 bit 1): pin unless the scanning piece is a queen
+  $8DEA Neither
+L $8DEC EvFriendlyHit
+  $8DEC Friendly: defender count +weight
+L $8DEF EvFriendlyHit2
+  $8DEF Does it move along this line?
+  $8DF3 No: done
+  $8DF5 A pawn: one-square x-ray (#R$8E5C)
+L $8DF8 EvXrayChain
+  $8DF8 Continue the ray, counting mobility
+  $8E01 Enemy: x-ray attacker (+3)
+L $8E07 EvXrayAttacker
+  $8E07 L'=record+3 (from +4)
+  $8E08 Add the weight
+  $8E0D Friendly: x-ray defender (+5); and onwards if it also moves this way
+L $8E15 EvXrayDefender
+  $8E15 L'=record+5
+L $8E19 EvShieldTest
+  $8E19 Look beyond the enemy piece
+  $8E22 D'=record+6 of the first piece; an enemy piece beyond?
+  $8E29 Friendly or nothing: done
+L $8E2B EvPinQueen
+c $8E2B Record a pin
+D $8E2B Part of #R$8DAF. The pin list at $BD79 holds up to six (record, direction) pairs terminated by 0. A piece pinned twice gets direction 0. Adds 2 to E for a new pin (1 for a repeated one; 2 if the list is full).
+  $8E2B Pinned against a queen by a queen: E=E+2 only (#R$8E58)
+L $8E2F EvRecordPin
+  $8E2F D' = record base of the pinned piece
+  $8E33 Search the pin list
+  $8E3A Next entry
+  $8E40 Already pinned: direction 0, E=E+1
+  $8E47 List full (6 entries)?
+  $8E4C Append (record, direction) and a terminator
+  $8E55 Flag the pin list (B' bit 5)
+  $8E57 H'=$BE
+  $8E58 E=E+2
+L $8E5C EvPawnXray
+c $8E5C Bishop or queen behind a friendly pawn
+D $8E5C Part of #R$8DAF. If the ray runs in the pawn's capturing direction, the piece on the square beyond the pawn (if any) gets an x-ray defence (+5) or x-ray attack (+3).
+R $8E5C A Pawn's record +6 AND $C4
+R $8E5C C Direction
+  $8E5C Ray runs in the pawn's direction?
+  $8E5F Next square (on the board, occupied)
+  $8E66 Friendly: +5, enemy: +3
+L $8E74 EvUndoPins
+c $8E74 Remove the attacks of pinned pieces
+D $8E74 Used by #R$8400 when bit 5 of B' is set. For each (record, direction) in $BD79, subtracts the pinned piece's direct attacks in every direction except the pin line. E and D are preserved; B' is overwritten with the pinned piece's colour. Finally empties the list.
+  $8E74 IY=pin list
+  $8E7B L'=pinned piece's record
+L $8E7F EvUndoPin
+  $8E7F Return to #R$8F1B afterwards
+  $8E83 B'=colour; E'=square
+  $8E88 Type AND $8E: 0 = pawn
+  $8E8E Bishop (#R$8EE4)
+  $8E91 Knight (#R$8EC9)
+  $8E95 Rook (#R$8ED5)
+  $8E97 Queen: weight -$40 on rook lines and diagonals
+L $8E9F EvUndoPawnPin
+  $8E9F Pawn: B=square, C=+15 or -17 (left capture)
+  $8EAA Left capture, then right capture
+L $8EAF EvUndoPawnCapture
+c $8EAF Undo one pawn capture direction
+D $8EAF Part of #R$8E74. Skipped if the direction is along the pin line.
+R $8EAF B Square
+R $8EAF C Direction
+  $8EAF Along the pin line: keep
+  $8EB8 Piece on the target square?
+  $8EBE Friendly: defender count -1; enemy: attacker count -1
+L $8EC9 EvUndoKnightPin
+c $8EC9 Undo a pinned knight
+D $8EC9 Part of #R$8E74. Re-walks the knight with weight -4 (a pinned knight attacks nothing). B' bit 4 is set so a knight 'check' is flagged rather than aborting.
+  $8EC9 C'=-4; B' bit 4 set
+  $8ECD Re-walk the knight (#R$8CD2)
+L $8ED5 EvUndoRookPin
+  $8ED5 Rook: C'=-$10
+L $8ED7 EvUndoOrthogonals
+c $8ED7 Undo rook-line attacks
+D $8ED7 Part of #R$8E74.
+  $8ED7 B=square
+  $8ED9 Horizontal
+  $8EDF Vertical
+L $8EE4 EvUndoBishopPin
+  $8EE4 Bishop type? (otherwise treat as a pawn)
+  $8EE8 C'=-4
+L $8EED EvUndoDiagonals
+  $8EED Diagonal +15/-15
+  $8EF2 Diagonal +17/-17
+L $8EF4 EvUndoLine
+c $8EF4 Undo the attacks along one line
+D $8EF4 Part of #R$8E74. Skipped if the line is the pin line; otherwise both directions.
+R $8EF4 C Direction
+  $8EF4 Along the pin line: keep
+  $8EFD Forward
+  $8F02 Backward
+L $8F05 EvUndoRay
+c $8F05 Undo the first attack along a ray
+D $8F05 Part of #R$8E74.
+  $8F05 Find the first piece
+  $8F0E Friendly: +4 += C'; enemy: +2 += C'
+L $8F1B EvNextPin
+c $8F1B Next pin-list entry
+D $8F1B Return point for #R$8E7F.
+  $8F1B Another entry?
+  $8F21 Yes: process it
+  $8F2A Done: restore DE, empty the list
