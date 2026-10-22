@@ -110,6 +110,8 @@ pub const Engine = struct {
     s: *State,
     /// Scratch state for checking reported lines (never searched).
     scratch: *State,
+    /// The root position of the current pass, for the current line.
+    root_copy: *State,
     session: game.Session,
     opts: Options = .{},
     rng: Rng,
@@ -176,7 +178,9 @@ pub const Engine = struct {
         const s = try gpa.create(State);
         s.* = .{ .ignore_draw_rules = true }; // DEV-012
         const scratch = try gpa.create(State);
-        e.* = .{ .gpa = gpa, .io = io, .out = out, .s = s, .scratch = scratch, .session = .{ .s = s }, .rng = Rng.init(clockSeed(io)) };
+        const root_copy = try gpa.create(State);
+        root_copy.* = .{};
+        e.* = .{ .gpa = gpa, .io = io, .out = out, .s = s, .scratch = scratch, .root_copy = root_copy, .session = .{ .s = s }, .rng = Rng.init(clockSeed(io)) };
         e.session.turn = game.coldStart(s);
         try e.resetHistory(null);
         return e;
@@ -190,6 +194,7 @@ pub const Engine = struct {
         if (e.start_fen) |f| e.gpa.free(f);
         e.gpa.destroy(e.s);
         e.gpa.destroy(e.scratch);
+        e.gpa.destroy(e.root_copy);
         e.gpa.destroy(e);
     }
 
@@ -259,22 +264,22 @@ pub const Engine = struct {
             if (std.ascii.eqlIgnoreCase(v, "Level 6")) e.opts.profile = .level6 else if (std.ascii.eqlIgnoreCase(v, "Level 7")) e.opts.profile = .level7 else if (std.ascii.eqlIgnoreCase(v, "Level 8")) e.opts.profile = .level8 else return e.unknownValue(o);
             return;
         } else if (std.ascii.eqlIgnoreCase(o.name, "OwnBook")) {
-            e.opts.own_book = std.ascii.eqlIgnoreCase(v, "true");
+            e.opts.own_book = check(v) orelse return e.unknownValue(o);
             return;
         } else if (std.ascii.eqlIgnoreCase(o.name, "Ponder")) {
-            e.opts.ponder = std.ascii.eqlIgnoreCase(v, "true");
+            e.opts.ponder = check(v) orelse return e.unknownValue(o);
             return;
         } else if (std.ascii.eqlIgnoreCase(o.name, "Move Overhead")) {
-            e.opts.move_overhead = std.fmt.parseInt(u64, v, 10) catch return e.unknownValue(o);
+            e.opts.move_overhead = spin(v, 5000) orelse return e.unknownValue(o);
             return;
         } else if (std.ascii.eqlIgnoreCase(o.name, "UCI_ShowCurrLine")) {
-            e.opts.show_currline = std.ascii.eqlIgnoreCase(v, "true");
+            e.opts.show_currline = check(v) orelse return e.unknownValue(o);
             return;
         } else if (std.ascii.eqlIgnoreCase(o.name, "UCI_ShowRefutations")) {
-            e.opts.show_refutations = std.ascii.eqlIgnoreCase(v, "true");
+            e.opts.show_refutations = check(v) orelse return e.unknownValue(o);
             return;
         } else if (std.ascii.eqlIgnoreCase(o.name, "Seed")) {
-            e.opts.seed = std.fmt.parseInt(u64, v, 10) catch return e.unknownValue(o);
+            e.opts.seed = spin(v, 2147483647) orelse return e.unknownValue(o);
             e.rng = Rng.init(if (e.opts.seed == 0) clockSeed(e.io) else e.opts.seed);
             return;
         } else {
@@ -282,6 +287,19 @@ pub const Engine = struct {
             return;
         }
         e.unknownValue(o);
+    }
+
+    /// A check option's value: `true` / `false` (any case), else null.
+    fn check(v: []const u8) ?bool {
+        if (std.ascii.eqlIgnoreCase(v, "true")) return true;
+        if (std.ascii.eqlIgnoreCase(v, "false")) return false;
+        return null;
+    }
+
+    /// A spin option's value within 0 … `max` (as advertised), else null.
+    fn spin(v: []const u8, max: u64) ?u64 {
+        const n = std.fmt.parseInt(u64, v, 10) catch return null;
+        return if (n <= max) n else null;
     }
 
     fn unknownValue(e: *Engine, o: uci_parse.SetOption) void {
@@ -333,7 +351,10 @@ pub const Engine = struct {
             const rest = moves.items[i..];
             if (rest.len == 1 and cp.cyrus_moved and e.s.players != 0 and e.session.turn == .human) {
                 // Continuing the game after the engine's move: the opponent's
-                // move is entered in HUMAN v CYRUS mode when `go` comes.
+                // move is entered in HUMAN v CYRUS mode when `go` comes. Its
+                // notation is checked now, so that the rejection belongs to
+                // this `position` (CR-09).
+                if (!game.promotionSuffixFits(e.s, rest[0])) return e.rejectErr(error.BadPromotion);
                 e.session.pending = rest[0];
                 return;
             }
@@ -366,11 +387,19 @@ pub const Engine = struct {
         }
     }
 
+    /// A `position` command that could not even be parsed (code review
+    /// CR-08): like any rejected position, it leaves no valid position.
+    pub fn rejectPositionCommand(e: *Engine, line: []const u8) void {
+        e.dropGoBase();
+        e.reject("cannot parse '{s}'", .{line[0..@min(line.len, 160)]});
+    }
+
     fn rejectErr(e: *Engine, err: anyerror) void {
         e.valid = false;
         e.reject("{s}", .{switch (err) {
             error.IllegalMove => "a move is illegal for the original",
             error.GameTooLong => "the game is too long for the original's ply counter",
+            error.BadPromotion => "a promotion needs its piece (e7e8q) and no other move may have one",
             error.GameOver => "the original's game is over (mate, stalemate or its draw rules) before the last move",
             else => @errorName(err),
         }});
@@ -745,22 +774,27 @@ const Control = struct {
             const t = c.elapsed();
             if (c.e.opts.show_currline and t >= 1000 and t - c.last_currline_ms >= 1000) {
                 c.last_currline_ms = t;
+                var raw: [st.ply_slots]info_mod.Move = undefined;
+                var line: [st.ply_slots]info_mod.Move = undefined;
+                const n = c.replay(c.e.root_copy, raw[0..c.info.currLine(&raw)], &line);
                 var buf: [1024]u8 = undefined;
                 var w: std.Io.Writer = .fixed(&buf);
-                w.writeAll("info ") catch {};
-                c.info.writeCurrLine(&w) catch {};
-                c.e.out.line(w.buffered());
+                var b: [5]u8 = undefined;
+                w.writeAll("info currline") catch {};
+                for (line[0..n]) |m| w.print(" {s}", .{m.uci(&b)}) catch {};
+                if (n > 0) c.e.out.line(w.buffered());
             }
         }
         return false;
     }
 
     fn onPassStart(ctx: ?*anyopaque, s: *const State, depth: u8, a: u8) void {
-        _ = s;
         _ = a;
         const c = self(ctx);
         c.pass_start_ms = c.elapsed();
         c.pass_depth = depth;
+        // The root position, for replaying the current line mid-search.
+        if (c.e.opts.show_currline) c.e.root_copy.* = s.*;
     }
 
     /// Pass durations for the time prediction; the D = 2 pre-pass is a
@@ -793,12 +827,19 @@ const Control = struct {
     /// only guess them from the board after the move, where an earlier
     /// promoted queen looks the same. Called at the root only.
     fn legalPv(c: *Control, out: *[st.ply_slots]info_mod.Move) usize {
-        const info = c.info;
-        var line: [st.ply_slots]legal.Move = undefined;
+        return c.replay(c.e.s, c.info.best[0..c.info.best_len], out);
+    }
+
+    /// A reported line replayed from `root`: its legal prefix, with each
+    /// move's promotion decided on the board before it (code review CR-10:
+    /// refutations and currline too).
+    fn replay(c: *Control, root: *const State, line: []const info_mod.Move, out: []info_mod.Move) usize {
+        var lm: [st.ply_slots]legal.Move = undefined;
         var promos: [st.ply_slots]bool = undefined;
-        for (info.best[0..info.best_len], 0..) |m, k| line[k] = .{ .from = m.from, .to = m.to };
-        const n = legal.legalPrefix(c.e.s, c.e.scratch, line[0..info.best_len], promos[0..info.best_len]);
-        for (0..n) |k| out[k] = .{ .from = line[k].from, .to = line[k].to, .promo = promos[k] };
+        const len = @min(line.len, lm.len, out.len);
+        for (line[0..len], 0..) |m, k| lm[k] = .{ .from = m.from, .to = m.to };
+        const n = legal.legalPrefix(root, c.e.scratch, lm[0..len], promos[0..len]);
+        for (0..n) |k| out[k] = .{ .from = lm[k].from, .to = lm[k].to, .promo = promos[k] };
         return n;
     }
 
@@ -821,7 +862,9 @@ const Control = struct {
             var b1: [5]u8 = undefined;
             var b2: [5]u8 = undefined;
             for (info.refutations[0..info.refutation_count]) |r| {
-                c.e.out.print("info refutation {s} {s}", .{ r.root.uci(&b1), r.reply.uci(&b2) });
+                var two: [2]info_mod.Move = undefined;
+                if (c.replay(c.e.s, &.{ r.root, r.reply }, &two) != 2) continue;
+                c.e.out.print("info refutation {s} {s}", .{ two[0].uci(&b1), two[1].uci(&b2) });
             }
         }
     }
@@ -1063,6 +1106,55 @@ test "searchmoves is enforced on every path (code review CR-04)" {
             try std.testing.expect(bm.len == 4);
         }
     }
+}
+
+test "refutations carry promotion suffixes (code review CR-10)" {
+    const gpa = std.testing.allocator;
+    var out: TestOut = .{ .gpa = gpa };
+    defer out.deinit();
+    errdefer out.dump();
+    const e = try Engine.init(gpa, std.testing.io, out.output());
+    defer e.deinit();
+    var sig: Signals = .{};
+    try run(e, &sig, "setoption name Seed value 7");
+    try run(e, &sig, "setoption name OwnBook value false");
+    try run(e, &sig, "setoption name UCI_ShowRefutations value true");
+    try run(e, &sig, "position fen 7k/8/8/8/8/8/6p1/KR6 w - - 0 1");
+    try run(e, &sig, "go depth 4");
+    var promotions: usize = 0;
+    for (out.lines.items) |l| {
+        if (!std.mem.startsWith(u8, l, "info refutation ")) continue;
+        var it = std.mem.tokenizeScalar(u8, l["info refutation ".len..], ' ');
+        _ = it.next();
+        const reply = it.next().?;
+        // every pawn move to g1/f1/h1 here is a promotion
+        if (reply[0] == 'g' and reply[1] == '2' and reply[3] == '1') {
+            try std.testing.expectEqual(@as(usize, 5), reply.len);
+            promotions += 1;
+        }
+    }
+    try std.testing.expect(promotions > 0);
+}
+
+test "option values outside their type are ignored" {
+    const gpa = std.testing.allocator;
+    var out: TestOut = .{ .gpa = gpa };
+    defer out.deinit();
+    errdefer out.dump();
+    const e = try Engine.init(gpa, std.testing.io, out.output());
+    defer e.deinit();
+    var sig: Signals = .{};
+    try run(e, &sig, "setoption name OwnBook value maybe");
+    try std.testing.expect(e.opts.own_book);
+    try std.testing.expect(out.has("info string unknown value 'maybe' for option OwnBook"));
+    try run(e, &sig, "setoption name Move Overhead value 999999999");
+    try std.testing.expectEqual(@as(u64, 30), e.opts.move_overhead);
+    try run(e, &sig, "setoption name Move Overhead value 5000");
+    try std.testing.expectEqual(@as(u64, 5000), e.opts.move_overhead);
+    try run(e, &sig, "setoption name Seed value 2147483648");
+    try std.testing.expectEqual(@as(u64, 0), e.opts.seed);
+    try run(e, &sig, "setoption name Ponder value TRUE");
+    try std.testing.expect(e.opts.ponder);
 }
 
 test "uci identity and options" {

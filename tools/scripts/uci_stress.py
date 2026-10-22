@@ -213,6 +213,31 @@ def main():
     check(line == 'bestmove 0000' and any('NO MATE FOUND' in s for s in e.seen), f'P2 without a mate: NO MATE FOUND, bestmove 0000 ({line})')
     e.send('setoption name Level value UCI')
 
+    # 7b. the code review's command-flow cases (CR-05, CR-08)
+    e.send('setoption name OwnBook value false')
+    e.send('position startpos')
+    e.send('go depth 60')
+    time.sleep(0.2)
+    t0 = time.time()
+    e.send('position startpos')
+    e.send('stop')
+    e.send('isready')
+    check(e.expect('readyok', 2) is not None and time.time() - t0 < 1.5,
+          'position + stop + isready during go depth 60: readyok at once')
+    # readyok may come before the stopped search's bestmove (UCI allows it)
+    stopped = next((s for s in e.seen if s.startswith('bestmove')), None) or e.expect('bestmove', 5)
+    check(stopped is not None, f'the stopped search sent its bestmove ({stopped})')
+    e.send('position startpos')
+    e.send('position garbage')
+    e.send('go depth 1')
+    line = e.expect('bestmove', 10)
+    check(line == 'bestmove 0000', f'unparsable position leaves no position ({line})')
+    e.send('position startpos')
+    e.send('go depth x')
+    line = e.expect('bestmove', 10)
+    check(line == 'bestmove 0000', f'malformed go still answers bestmove ({line})')
+    e.send('setoption name OwnBook value true')
+
     # 8. long infinite searches: depths the original never reached
     for fen in (chess.STARTING_FEN, mid, '8/8/8/4k3/8/8/4P3/4K3 w - - 0 1'):
         e.send(f'position fen {fen}')
@@ -224,6 +249,20 @@ def main():
         print(f'      deepest depth reached: {max(depths) if depths else 0}')
     ready(e, 'everything')
     e.close()
+
+    # 9. quit during a long finite search exits at once (CR-05)
+    q = Engine(args.engine)
+    q.send('setoption name OwnBook value false')
+    q.send('position startpos')
+    q.send('go depth 60')
+    time.sleep(0.3)
+    t0 = time.time()
+    q.send('quit')
+    try:
+        q.p.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        q.p.kill()
+    check(time.time() - t0 < 1.5, f'quit during go depth 60 exits in {time.time() - t0:.2f}s')
     print(f'{len(FAILS)} failures')
     raise SystemExit(1 if FAILS else 0)
 

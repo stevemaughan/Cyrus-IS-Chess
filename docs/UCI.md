@@ -29,15 +29,17 @@ Unknown option names or values print `info string unknown …` and are otherwise
 | Command | Behaviour |
 |---|---|
 | `uci` | Identity, options, `uciok`. |
-| `isready` | `readyok` at once, also during a search. |
-| `ucinewgame` | Stops any search, then the original's new game (keeps `$BCA0`, `$BCCE` and the level, as the original does). |
-| `position …` | Stops any search, then sets the position (below). |
-| `go …` | Starts the search on the search thread. |
-| `stop` | Ends the search; `bestmove` follows. Ignored when idle. |
+| `isready` | `readyok`: at once while a `go` is running or queued, otherwise after the commands before it. |
+| `ucinewgame` | The original's new game (keeps `$BCA0`, `$BCCE` and the level, as the original does). |
+| `position …` | Sets the position (below). A `position` line that cannot be parsed is a rejected position. |
+| `go …` | Searches. A `go` line that cannot be parsed answers `info string error` and `bestmove 0000`. |
+| `stop` | Ends the running search, or a `go` still queued; `bestmove` follows. Ignored when idle. |
 | `ponderhit` | The pondered move was played: the search continues on the clock. |
-| `setoption` | Stops any search, then sets the option. |
-| `debug`, unknown commands | Ignored. A line that cannot be parsed gives `info string error: cannot parse '…'`. |
-| `quit` | Stops any search (its `bestmove` is still printed) and exits with status 0. End of input is the same as `quit`. |
+| `setoption` | Sets the option. Check options take `true`/`false`, spin options an integer within their range; anything else is ignored with `info string unknown value …`. |
+| `debug`, unknown commands | Ignored. Another line that cannot be parsed gives `info string error: cannot parse '…'`. |
+| `quit` | Stops any search (its `bestmove` is still printed), drops queued commands and exits with status 0. End of input stops every search but still runs the queued commands, so each piped `go` gets its `bestmove`. |
+
+`ucinewgame`, `position`, `setoption` and `go` run in order on the engine's worker thread. A `go` runs to its end before the next of them, so a script may send `go depth 5` and the next `position` at once. A `go infinite` or `go ponder` is stopped by any later one of these commands, since a GUI sending one has abandoned that search.
 
 A UTF-8 byte-order mark before the first command is skipped.
 
@@ -45,7 +47,7 @@ Every `go` prints exactly one `bestmove`. The move is in UCI notation, promotion
 
 ### Threads
 
-The main thread reads standard input. Each `go` runs on one search thread. The input thread sets two atomic flags, `stop` and `ponderhit`. The search reads them only at the original's key poll (`$78BA`, every node entry): `stop` there sets `$BD4C` bit 7 exactly as a key press would (DEV-007). The clock is read at the same point every 1,024 node entries. Output lines from both threads go through one mutex and are flushed one at a time.
+The main thread only reads standard input: it never waits for the engine (code review CR-05). The engine's commands run on one worker thread, which owns the engine state. The input thread sets two atomic flags, `stop` and `ponderhit`. The search reads them only at the original's key poll (`$78BA`, every node entry): `stop` there sets `$BD4C` bit 7 exactly as a key press would (DEV-007). The clock is read at the same point, at the first node entry and every 64 after it. Output lines from both threads go through one mutex and are flushed one at a time. On Windows, pipes are read and written with overlapped I/O (`src/pipe_io.zig`), which works whether the GUI's pipe is synchronous or overlapped.
 
 ## Positions
 

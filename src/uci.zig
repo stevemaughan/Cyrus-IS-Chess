@@ -27,47 +27,169 @@ const StdOut = struct {
     }
 };
 
-const Search = struct {
-    thread: ?std.Thread = null,
+/// The engine's commands (`setoption`, `ucinewgame`, `position`, `go`) run in
+/// order on one worker thread, which owns the Engine; a `go` runs to the end
+/// before the next command (scripts may send `go depth N` and the next
+/// `position` at once). The input thread never waits for them (code review
+/// CR-05), so `stop`, `ponderhit`, `isready` and `quit` act at once even
+/// while a search runs or commands are queued behind it.
+const Worker = struct {
+    gpa: std.mem.Allocator,
+    io: std.Io,
+    e: *Engine,
+    out: *StdOut,
+    mutex: std.Io.Mutex = .init,
+    cond: std.Io.Condition = .init,
+    /// Raw command lines, owned (the reader's buffer is reused).
+    queue: std.ArrayList(Job) = .empty,
+    quitting: bool = false,
+    /// Signals of the running `go`.
     sig: engine_mod.Signals = .{},
-    go: uci_parse.Go = .{},
-    searchmoves: ?[]u8 = null,
+    /// `go` sequence numbers: the newest queued, the running one (0 = none),
+    /// and the newest that `stop` / `ponderhit` have reached.
+    queued_go: u64 = 0,
+    running_go: u64 = 0,
+    stopped_go: u64 = 0,
+    ponderhit_go: u64 = 0,
+    /// The newest queued `go` holds its `bestmove` (`infinite` / `ponder`).
+    queued_go_holds: bool = false,
 
-    fn running(s: *Search) bool {
-        return s.thread != null;
-    }
+    const Job = struct {
+        line: []u8,
+        /// For a `go`: its sequence number.
+        go_id: u64 = 0,
+    };
 
-    /// Before a command that changes the engine's state: wait for a running
-    /// search to finish, as only `stop` and `quit` may end a search early.
-    /// A search that never ends by itself (`infinite`, `ponder`) is stopped,
-    /// since a GUI sending other commands then has abandoned it.
-    fn settle(s: *Search, gpa: std.mem.Allocator) void {
-        s.finish(gpa, s.go.infinite or s.go.ponder);
-    }
-
-    /// Stop the search (if any) and wait for it; `bestmove` has then been printed.
-    fn finish(s: *Search, gpa: std.mem.Allocator, stop: bool) void {
-        if (s.thread) |t| {
-            if (stop) s.sig.stop.store(true, .release);
-            t.join();
-            s.thread = null;
+    /// Queue an engine command. A `go` that only `stop` would end
+    /// (`infinite`, `ponder`) is stopped by any later engine command: a GUI
+    /// sending one has abandoned that search.
+    fn push(w: *Worker, line: []const u8, is_go: bool, holds: bool) !void {
+        const copy = try w.gpa.dupe(u8, line);
+        errdefer w.gpa.free(copy);
+        w.mutex.lockUncancelable(w.io);
+        defer w.mutex.unlock(w.io);
+        if (w.queued_go_holds) w.stopLocked();
+        var job: Job = .{ .line = copy };
+        if (is_go) {
+            w.queued_go += 1;
+            job.go_id = w.queued_go;
+            w.queued_go_holds = holds;
+        } else {
+            w.queued_go_holds = false;
         }
-        if (s.searchmoves) |m| gpa.free(m);
-        s.searchmoves = null;
+        try w.queue.append(w.gpa, job);
+        w.cond.signal(w.io);
+    }
+
+    /// `stop`: the running `go` and any queued before this point.
+    fn stopLocked(w: *Worker) void {
+        w.stopped_go = w.queued_go;
+        if (w.running_go != 0) w.sig.stop.store(true, .release);
+    }
+
+    fn stop(w: *Worker) void {
+        w.mutex.lockUncancelable(w.io);
+        defer w.mutex.unlock(w.io);
+        w.stopLocked();
+    }
+
+    fn ponderhit(w: *Worker) void {
+        w.mutex.lockUncancelable(w.io);
+        defer w.mutex.unlock(w.io);
+        w.ponderhit_go = w.queued_go;
+        if (w.running_go != 0) w.sig.ponderhit.store(true, .release);
+    }
+
+    /// Whether a `go` is running or queued (then `isready` is answered at
+    /// once, as UCI allows during a search; otherwise after the queue).
+    fn busy(w: *Worker) bool {
+        w.mutex.lockUncancelable(w.io);
+        defer w.mutex.unlock(w.io);
+        if (w.running_go != 0) return true;
+        for (w.queue.items) |j| if (j.go_id != 0) return true;
+        return false;
+    }
+
+    /// `quit`: stop the search, drop the queue. End of input (`drop` false):
+    /// stop every search but still run the queue, so that each `go` piped
+    /// in gets its `bestmove`.
+    fn quit(w: *Worker, drop: bool) void {
+        w.mutex.lockUncancelable(w.io);
+        defer w.mutex.unlock(w.io);
+        w.quitting = true;
+        w.stopLocked();
+        if (drop) {
+            for (w.queue.items) |j| w.gpa.free(j.line);
+            w.queue.clearRetainingCapacity();
+        }
+        w.cond.signal(w.io);
+    }
+
+    fn main(w: *Worker) void {
+        while (true) {
+            w.mutex.lockUncancelable(w.io);
+            while (w.queue.items.len == 0 and !w.quitting) w.cond.waitUncancelable(w.io, &w.mutex);
+            if (w.queue.items.len == 0) {
+                w.mutex.unlock(w.io);
+                return;
+            }
+            const job = w.queue.orderedRemove(0);
+            if (job.go_id != 0) {
+                w.sig = .{};
+                w.running_go = job.go_id;
+                if (job.go_id <= w.stopped_go) w.sig.stop.store(true, .release);
+                if (job.go_id <= w.ponderhit_go) w.sig.ponderhit.store(true, .release);
+            }
+            w.mutex.unlock(w.io);
+            defer w.gpa.free(job.line);
+            w.execute(job.line) catch |err| {
+                w.out.output().print("info string error: {s}", .{@errorName(err)});
+            };
+            if (job.go_id != 0) {
+                w.mutex.lockUncancelable(w.io);
+                w.running_go = 0;
+                w.mutex.unlock(w.io);
+            }
+        }
+    }
+
+    fn execute(w: *Worker, line: []const u8) !void {
+        const e = w.e;
+        const cmd = uci_parse.parse(line) catch {
+            const trimmed = std.mem.trim(u8, line, " \r\n\t");
+            if (std.mem.startsWith(u8, trimmed, "position")) {
+                e.rejectPositionCommand(trimmed); // CR-08: no stale position
+            } else if (std.mem.startsWith(u8, trimmed, "go")) {
+                // Every `go` gets exactly one `bestmove`.
+                w.out.output().print("info string error: cannot parse '{s}'", .{trimmed});
+                w.out.output().line("bestmove 0000");
+            }
+            return;
+        };
+        switch (cmd) {
+            .setoption => |o| e.setOption(o),
+            .ucinewgame => try e.newGame(),
+            .position => |p| try e.position(p),
+            .go => |g| e.go(g, &w.sig),
+            .isready => w.out.output().line("readyok"),
+            else => {},
+        }
     }
 };
-
-fn searchMain(e: *Engine, g: uci_parse.Go, sig: *engine_mod.Signals) void {
-    e.go(g, sig);
-}
 
 pub fn run(gpa: std.mem.Allocator, io: std.Io) !void {
     var out: StdOut = .{ .io = io };
     out.stdout.init(io);
     const e = try Engine.init(gpa, io, out.output());
     defer e.deinit();
-    var search: Search = .{};
-    defer search.finish(gpa, true);
+    var worker: Worker = .{ .gpa = gpa, .io = io, .e = e, .out = &out };
+    defer worker.queue.deinit(gpa);
+    const thread = try std.Thread.spawn(.{}, Worker.main, .{&worker});
+    var quit_command = false;
+    defer {
+        worker.quit(quit_command);
+        thread.join();
+    }
 
     var in_buf: [64 * 1024]u8 = undefined;
     // Overlapped pipes (fastchess on Windows) need pipe_io: std's reader
@@ -88,38 +210,29 @@ pub fn run(gpa: std.mem.Allocator, io: std.Io) !void {
         // A byte-order mark may precede the first command (e.g. Windows pipes).
         const line = if (std.mem.startsWith(u8, raw, "\xEF\xBB\xBF")) raw[3..] else raw;
         const cmd = uci_parse.parse(line) catch {
-            out.output().print("info string error: cannot parse '{s}'", .{std.mem.trim(u8, line, " \r\n\t")});
+            // A malformed `position` or `go` still reaches the worker, in
+            // order (CR-08); anything else is reported and ignored.
+            const word = std.mem.trim(u8, line, " \r\n\t");
+            const is_go = std.mem.startsWith(u8, word, "go");
+            if (is_go or std.mem.startsWith(u8, word, "position")) {
+                try worker.push(line, is_go, false);
+            } else {
+                out.output().print("info string error: cannot parse '{s}'", .{word});
+            }
             continue;
         };
         switch (cmd) {
             .uci => e.printId(),
-            .isready => out.output().line("readyok"),
+            .isready => if (worker.busy()) out.output().line("readyok") else try worker.push(line, false, false),
             .debug, .unknown => {},
-            .stop => if (search.running()) search.sig.stop.store(true, .release),
-            .ponderhit => if (search.running()) search.sig.ponderhit.store(true, .release),
-            .quit => break,
-            .setoption => |o| {
-                search.settle(gpa);
-                e.setOption(o);
+            .stop => worker.stop(),
+            .ponderhit => worker.ponderhit(),
+            .quit => {
+                quit_command = true;
+                break;
             },
-            .ucinewgame => {
-                search.settle(gpa);
-                try e.newGame();
-            },
-            .position => |p| {
-                search.settle(gpa);
-                try e.position(p);
-            },
-            .go => |g| {
-                search.settle(gpa);
-                search.sig = .{};
-                search.go = g;
-                if (g.searchmoves) |m| {
-                    search.searchmoves = try gpa.dupe(u8, m);
-                    search.go.searchmoves = search.searchmoves;
-                }
-                search.thread = try std.Thread.spawn(.{}, searchMain, .{ e, search.go, &search.sig });
-            },
+            .setoption, .ucinewgame, .position => try worker.push(line, false, false),
+            .go => |g| try worker.push(line, true, g.infinite or g.ponder),
         }
     }
 }

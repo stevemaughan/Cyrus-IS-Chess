@@ -32,6 +32,7 @@ const eval = @import("eval.zig");
 const presearch = @import("presearch.zig");
 const scoring = @import("scoring.zig");
 const observer = @import("observer.zig");
+const legal = @import("legal.zig");
 
 test {
     _ = @import("game_tests.zig");
@@ -554,7 +555,16 @@ pub const MoveError = error{
     IllegalMove,
     /// The 16-bit ply counter ($C001) would wrap (DEV-014).
     GameTooLong,
+    /// UCI notation: a promotion without its piece, or a piece on another
+    /// move (code review CR-09).
+    BadPromotion,
 };
+
+/// Whether `m`'s promotion suffix fits the position: present exactly when a
+/// pawn moves to the last rank.
+pub fn promotionSuffixFits(s: *const State, m: Move) bool {
+    return legal.isPawnPromotion(s, m.from, m.to) == (m.promo != 0);
+}
 
 /// The most plies a game may reach: the original's 16-bit counter wraps
 /// after $FFFF, so a longer game is one it cannot hold (DEV-014: rejected).
@@ -569,6 +579,7 @@ pub fn humanMove(s: *State, m: Move) MoveError!Turn {
     const count = s.lists[1]; // $6309: B = ($B401)
     const e = scoring.findMove(s, st.list_base + 2, count, m.from, m.to, null) orelse return error.IllegalMove;
     if (s.entry(e)[0] == 0) return error.IllegalMove;
+    if (!promotionSuffixFits(s, m)) return error.BadPromotion;
     s.exclusion_len = 0; // $631D: ClearExclusionList
     playMove(s, e, m.promo);
     return mainLoop(s);
@@ -714,13 +725,17 @@ pub const Fen = struct {
     castling_len: u8 = 0,
     ep: ?u8 = null,
 
+    /// As flexible as possible (owner decision 2026-10-22): the placement and
+    /// the side are required; castling and en passant default to `-`; the
+    /// counters and anything after them are never examined (the original
+    /// restarts them after set-up anyway); castling letters may repeat.
     pub fn parse(text: []const u8) FenError!Fen {
         var f: Fen = .{};
         var it = std.mem.tokenizeAny(u8, text, " \t");
         const placement = it.next() orelse return error.MalformedFen;
         const side = it.next() orelse return error.MalformedFen;
-        const castling = it.next() orelse return error.MalformedFen;
-        const ep = it.next() orelse return error.MalformedFen;
+        const castling = it.next() orelse "-";
+        const ep = it.next() orelse "-";
         var row: u8 = 0;
         var file: u8 = 0;
         for (placement) |ch| {
@@ -744,9 +759,9 @@ pub const Fen = struct {
             f.white = false;
         } else return error.MalformedFen;
         if (!std.mem.eql(u8, castling, "-")) {
-            if (castling.len > 4) return error.MalformedFen;
             for (castling) |ch| {
                 if (std.mem.indexOfScalar(u8, "KQkq", ch) == null) return error.MalformedFen;
+                if (f.hasRight(ch)) continue;
                 f.castling[f.castling_len] = ch;
                 f.castling_len += 1;
             }

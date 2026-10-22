@@ -293,20 +293,21 @@ pub const Info = struct {
     }
 
     /// The current line (UCI_ShowCurrLine): the root move and the moves at
-    /// plies 2 .. current ply, from the current-move table.
-    pub fn writeCurrLine(self: *const Info, w: *std.Io.Writer) !void {
-        try w.writeAll("currline");
-        var buf: [5]u8 = undefined;
-        try w.writeAll(" ");
-        try w.writeAll(self.currmove.uci(&buf));
-        const s = self.state orelse return;
+    /// plies 2 .. current ply, from the current-move table. Promotion flags
+    /// are left to the caller, which replays the line from the root.
+    pub fn currLine(self: *const Info, out: []Move) usize {
+        if (out.len == 0) return 0;
+        out[0] = self.currmove;
+        var n: usize = 1;
+        const s = self.state orelse return n;
         var q: usize = 2;
-        while (q < s.ply and q < max_line) : (q += 1) {
+        while (q < s.ply and q < max_line and n < out.len) : (q += 1) {
             const m: Move = .{ .from = s.curmove[q][0] & 0x7F, .to = s.curmove[q][1] };
             if (m.from & 0x88 != 0 or m.to & 0x88 != 0) break;
-            try w.writeAll(" ");
-            try w.writeAll(m.uci(&buf));
+            out[n] = m;
+            n += 1;
         }
+        return n;
     }
 };
 

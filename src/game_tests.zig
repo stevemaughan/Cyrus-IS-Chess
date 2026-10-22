@@ -174,6 +174,9 @@ const SessionStats = struct {
     first_go: usize = 0,
     later_go: usize = 0,
     fen_rejected: usize = 0,
+    /// FENs the oracle rejects only for missing fields, which the port
+    /// accepts (owner decision 2026-10-22, code review CR-07).
+    flexible_fen: usize = 0,
     /// Computer moves in positions with 127 or more moves (DEV-001).
     dev001: usize = 0,
     failures: usize = 0,
@@ -228,8 +231,13 @@ fn runSessions(name: []const u8, stats: *SessionStats) !void {
                     break;
                 };
                 if (rec.get("rejected")) |r| {
-                    if (stats.failures < 8) std.debug.print("{s} #{d}: accepted, golden rejected: {s}\n", .{ name, i, r.string });
-                    failed = true;
+                    const fields = if (fen) |t| std.mem.count(u8, std.mem.trim(u8, t, " "), " ") + 1 else 6;
+                    if (std.mem.startsWith(u8, r.string, "malformed FEN") and fields < 4) {
+                        stats.flexible_fen += 1;
+                    } else {
+                        if (stats.failures < 8) std.debug.print("{s} #{d}: accepted, golden rejected: {s}\n", .{ name, i, r.string });
+                        failed = true;
+                    }
                     break;
                 }
             } else if (std.mem.eql(u8, kind, "continue")) {
@@ -315,9 +323,36 @@ test "edge positions: FEN loading and the states they lead to" {
 test "rejected positions are rejected for the recorded reason" {
     var stats: SessionStats = .{};
     try runSessions("reject.jsonl.gz", &stats);
-    std.debug.print("reject.jsonl.gz: {d} sessions, {d} rejected as recorded, {d} failures\n", .{ stats.sessions, stats.fen_rejected, stats.failures });
+    std.debug.print("reject.jsonl.gz: {d} sessions, {d} rejected as recorded, {d} accepted by the flexible FEN rule, {d} failures\n", .{ stats.sessions, stats.fen_rejected, stats.flexible_fen, stats.failures });
     try std.testing.expectEqual(@as(usize, 0), stats.failures);
-    try std.testing.expectEqual(stats.sessions, stats.fen_rejected);
+    try std.testing.expectEqual(stats.sessions, stats.fen_rejected + stats.flexible_fen);
+}
+
+test "flexible FEN fields (owner decision, code review CR-07)" {
+    const accept = [_][]const u8{
+        "7k/8/8/8/8/8/8/K7 w",
+        "7k/8/8/8/8/8/8/K7 w -",
+        "7k/8/8/8/8/8/8/K7 w - -",
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - garbage -9 trailing",
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KKKK - 0 1",
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w qkQK",
+    };
+    for (accept) |t| {
+        const f = try game.Fen.parse(t);
+        try std.testing.expect(f.castling_len <= 4);
+    }
+    const reject = [_][]const u8{ "", "7k/8/8/8/8/8/8/K7", "7k/8/8/8/8/8/8/K7 x", "7k/8/8/8/8/8/8/K6 w", "7k/8/8/8/8/8/8/K7 w KX", "7k/8/8/8/8/8/8/K7 w - z9" };
+    for (reject) |t| try std.testing.expectError(error.MalformedFen, game.Fen.parse(t));
+}
+
+test "promotion suffixes in move lists (code review CR-09)" {
+    const s = try std.testing.allocator.create(State);
+    defer std.testing.allocator.destroy(s);
+    s.* = .{};
+    _ = try game.loadFen(s, "7k/P7/8/8/8/8/8/7K w - - 0 1");
+    try std.testing.expectError(error.BadPromotion, game.humanMove(s, try game.Move.parse("a7a8")));
+    try std.testing.expectError(error.BadPromotion, game.humanMove(s, try game.Move.parse("h1g1q")));
+    _ = try game.humanMove(s, try game.Move.parse("a7a8n"));
 }
 
 test "book lines entered move by move reach the oracle's states" {
