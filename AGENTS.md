@@ -15,11 +15,18 @@ Produce a UCI chess engine, written in Zig, whose **search and evaluation behave
 - Same search algorithm, including pruning, move ordering, extensions, level structure, tie-breaking, opening book, draw handling and mate scoring.
 - Same sequence of moves made during a search, which implies the same node counts. This is our strongest proof of fidelity.
 
-There are only three permitted classes of change (see §8):
+**Deeper search (owner decision, 2026-10-21).** The original's levels stop at a full-width depth of 4. The port may search as deep as time allows, with iterative deepening and time management, to support every UCI `go` command. The guiding question is: *if the original engine had been able to search 20 ply, what would it have looked like?*
+- The evaluation and the search algorithm stay faithful: move ordering, extensions, pruning, scoring and draw handling.
+- Only the depth limit, the iteration loop and time control are new.
+- The original levels remain available unchanged, as an exact reference mode.
+- The full design is in `docs/EXTENDED_SEARCH.md`.
+
+There are only four permitted classes of change (see §8):
 
 1. **Crash-class bugs are fixed.** These cover anything that could crash, hang or corrupt the engine's memory.
 2. **Illegal moves are fixed.** The engine must never output an illegal move.
-3. **Platform adaptation.** This covers I/O, the UCI protocol, time management, random sources, and loading positions from FEN, with positions the original could not handle being rejected.
+3. **Platform adaptation.** This covers I/O, the UCI protocol, random sources, and loading positions from FEN, with positions the original could not handle being rejected.
+4. **The approved search extension.** Arbitrary depth, iterative deepening over the original's own pass mechanism, time management, reporting and pondering, exactly as specified in `docs/EXTENDED_SEARCH.md`.
 
 Everything else, *including weak play, odd evaluation and chess misconceptions*, is preserved deliberately. We are restoring a historical artefact. We are not improving it.
 
@@ -31,7 +38,7 @@ Everything else, *including weak play, odd evaluation and chess misconceptions*,
    - Its behaviour is documented in `docs/ORIGINAL_ARCHITECTURE.md` and `docs/arch/`.
    - Third-party descriptions of Cyrus, your memory of "how chess engines usually work" and later Lang programs are *hints only*.
    - The manual (`docs/manual/`) is a strong hint, but the code wins if they disagree.
-2. **Never "improve" the engine.** Do not add transposition tables, iterative deepening, null-move pruning, better evaluation terms, under-promotion search, mate-distance scoring, or anything else the original does not do. If you notice a weakness, record it in `docs/OBSERVATIONS.md` and leave it alone.
+2. **Never "improve" the engine.** Beyond the approved extension (§1), do not add anything the original does not do. That rules out transposition tables, history heuristics, null-move pruning, late-move reductions, aspiration windows, better evaluation terms, under-promotion search, mate-distance scoring and in-tree repetition detection (`docs/EXTENDED_SEARCH.md` §7). If you notice a weakness, record it in `docs/OBSERVATIONS.md` and leave it alone.
 3. **Every ported routine cites its origin.** Each Zig function that ports original code carries a doc comment naming the Z80 address range and the disassembly label, e.g. `/// Port of GenMoves ($78CE–$79C7).`
 4. **Every deviation is logged.** Any behavioural difference from the original, however small, gets an entry in `docs/DEVIATIONS.md` (format in §8.4) and a test that demonstrates it. An unlogged deviation is a bug.
 5. **Prove fidelity by differential testing against the original code** running in the oracle (§6 Phase 2). "It looks right" is not evidence. A routine is ported only when it matches the oracle on the test corpus.
@@ -52,7 +59,7 @@ Phase 1 is complete; see `docs/ORIGINAL_ARCHITECTURE.md` for the summary and `do
 - **No clock.** Nothing reads a timer.
   - A level is a fixed search shape (depth D = 1, 2, 2, 2, 3, 4, 4, 4 for Levels 1–8, plus pruning and extension switches, and a Level-2 pre-pass for Levels 6–8).
   - P1/P2/P3 search like Levels 1/4/8.
-  - There is no iterative deepening, and the deepest ply is 7.
+  - There is no iterative deepening beyond that pre-pass, and the deepest ply is 7. Extended mode generalises this; see `docs/EXTENDED_SEARCH.md`.
   - The manual's "times per level" were just Spectrum speed.
 - **Interruption:** a key press, polled at every search node, sets an abort flag. The search unwinds and plays the best completed root move.
 - **Scores** are one unsigned byte with `$80` = equal. Mates are not distance-scored.
@@ -83,6 +90,7 @@ disasm/
 docs/
   manual/                     ← original instructions
   ORIGINAL_ARCHITECTURE.md    ← summary spec of the original
+  EXTENDED_SEARCH.md          ← approved generalisation: any depth, iterative deepening, time management
   arch/                       ← subsystem specs: 00-overview, 10-main-ui, 20-board-movegen, 25-book, 30-search, 50-eval
   PORT_STATUS.md              ← port units and their verification state
   DEVIATIONS.md               ← every behavioural difference from the original
@@ -98,9 +106,11 @@ src/
   movegen.zig                 ← move generator (ported)
   presearch.zig               ← pre-search set-up $7810 (ported)
   eval.zig                    ← evaluation (ported)
-  search.zig                  ← search state machine (ported)
+  search.zig                  ← search state machine (ported; generalised per EXTENDED_SEARCH §2)
+  driver.zig                  ← pass schedules: original levels and extended iterative deepening
   book.zig                    ← opening book probe (ported; data read from the memory image)
-  levels.zig                  ← Level option, UCI time mapping, abort
+  timeman.zig                 ← time budget, soft/hard limits, abort at the poll point
+  pv.zig                      ← reporting-only PV table
   rng.zig                     ← seeded PRNG standing in for R and key-wait timing
 tools/
   scripts/                    ← simulator driver, ctl generator, disassembly build, book dumper
@@ -178,6 +188,12 @@ The oracle runs the **original code** under SkoolKit's Z80 simulator, driven fro
 
 This is mandatory, not a convenience. Stale move-list data, list-address comparisons, variables read as off-board squares, and persistent state are all behaviour (§3). Translate *control flow and arithmetic* into readable Zig, but keep *data* where the original keeps it.
 
+**The single exception** is the storage the original sized for ply ≤ 7: the per-ply tables, the move-list area and the undo stack. These are relocated and enlarged exactly as `docs/EXTENDED_SEARCH.md` §2 specifies:
+- move lists use 32-bit *virtual addresses*, identical to the original's below `$BC80` and continuing at `$10000`, so every address comparison still gives the same answer;
+- ply tables become arrays sized `MAX_DEPTH+4`.
+
+Golden-file comparisons map them back onto the original addresses for plies ≤ 7.
+
 | Step | Port | Differential test (Zig vs golden) |
 |---|---|---|
 | 3.1 | Memory image, tables, book data (copied from the binary by the build, never retyped) | byte equality with the binary |
@@ -191,6 +207,7 @@ This is mandatory, not a convenience. Stale move-list data, list-address compari
 | 3.9 | Abort at node N | identical result for injected aborts |
 | 3.10 | Opening book | identical choice for the same random bytes; full-tree walk |
 | 3.11 | Game-move path (PlayMove: record, 50-move counter, repetition tracking, promotion choice) | identical image after move sequences |
+| 3.12 | Extended driver: pass schedule, iterative deepening (`EXTENDED_SEARCH` §3) | anchors: `go depth 1/2/4` (profile Level 6/7/8) identical to original Level 1/2/6/7/8 on every golden search position |
 
 **Porting style:**
 - The Python models in `tools/research/` are executable specifications. Port from them *and* the disassembly. Where they differ, the disassembly wins, and the model gets fixed.
@@ -204,13 +221,20 @@ This is mandatory, not a convenience. Stale move-list data, list-address compari
 1. **Capacities.** Review every capacity in `src/memory.zig` against `docs/arch/*` (move-list area `$B400–$BC7F`, ply tables, stack, game record, pin list). Confirm the bounds the original guards, and fix the known bugs (DEV-001…DEV-004).
 2. **Safety checks.** Build in `Debug` and `ReleaseSafe` for testing. Every safety panic is either a faithful wrap (make it explicit with `+%`/`-%`) or a real bug (classify it, fix it, log it).
 3. **Illegal-move audit.** In debug builds, assert that every `bestmove` and every PV move is legal. Run perft against true perft and classify each divergence: B if it reaches output, C if it stays internal. Resolve OPEN_QUESTIONS #1 (castling through check) here.
-4. **Stress tests.** Every level including P1–P3; positions with ≥ 127 moves; long games through `position startpos moves …`; promotions galore; no legal moves; one legal move; malformed UCI input; thousands of fast self-play and gauntlet games under `fastchess`.
+4. **Stress tests.**
+   - Every level including P1–P3.
+   - Extended mode at depth 20+ and `go infinite` for minutes (relocated tables, list capacity, undo stack).
+   - Positions with ≥ 127 moves.
+   - Long games through `position startpos moves …`, including pondering and takebacks.
+   - Promotions galore; no legal moves; one legal move.
+   - Malformed UCI input.
+   - Thousands of fast self-play and gauntlet games under `fastchess` at bullet and blitz controls, with zero time losses.
 
 **Exit:** zero crashes, hangs, illegal moves or safety panics across a 10,000-game run and the stress suite. Every fix is logged and tested.
 
 ### Phase 5 — UCI layer
 
-Implement §9 in `uci.zig`, `game.zig` and `levels.zig`. The ported core is driven only through narrow hooks: the abort flag at the `$78BA` poll point, info reporting, and node counting.
+Implement §9 in `uci.zig`, `game.zig`, `driver.zig`, `timeman.zig` and `pv.zig`. The ported core is driven only through narrow hooks: the abort flag at the `$78BA` poll point, the pass schedule, PV and info reporting, and node counting.
 
 **Exit:** passes the protocol tests (§10.5) under `fastchess` and `cutechess-cli`, and plays in at least two GUIs (e.g. Arena and Cute Chess) in `UCI` mode and at every fixed level.
 
@@ -230,6 +254,12 @@ Implement §9 in `uci.zig`, `game.zig` and `levels.zig`. The ported core is driv
 - The search: make sequence, value table, killers, pruning, extensions, mate/stalemate/repetition handling, the move chosen (`$BD29`) and the root value (`$BCA0`).
 - The book's contents and selection, given the same random inputs.
 - Persistent state between moves, exactly as the original carries it (§9.6).
+- **Extended mode at its anchors:**
+  - `go depth 1` = Level 1;
+  - `go depth 2` = Level 2;
+  - `go depth 4` with profile Level 6/7/8 = that original level.
+
+  Beyond the anchors, extended mode runs the same code with D larger (`docs/EXTENDED_SEARCH.md`).
 
 ### 7.2 May differ (platform adaptation)
 - **Where positions and moves come from:** FEN and UCI move lists instead of the keyboard (§9.4, §9.6).
@@ -238,6 +268,7 @@ Implement §9 in `uci.zig`, `game.zig` and `levels.zig`. The ported core is driv
   - Each `LD A,R` in the book (`$7B89`) takes the next PRNG byte.
   - Nothing else about `$BCCE` changes.
 - **Termination (DEV-007):** `stop`, time limits and node limits set the original abort flag at the original poll point, exactly like a key press.
+- **Depth and iteration (DEV-008 to DEV-011):** extended mode, time management, the relocated per-ply storage, the reporting-only PV and pondering, all as specified in `docs/EXTENDED_SEARCH.md`.
 - **Reporting:** UCI `info` lines; scores converted for display only (§9.3).
 - **Class A and B fixes** (§8).
 
@@ -256,6 +287,7 @@ With a fixed `Seed` (or `OwnBook=false` and the same seed), the same command seq
 | **B: Illegal or missing move** | An illegal `bestmove` or PV move; no `bestmove` when legal moves exist | **Fix** (owner decision 2026-10-21; §8.2). |
 | **C: Chess bug** | Wrong but non-fatal behaviour that never reaches output as an illegal move | **Preserve**, and record it in `OBSERVATIONS.md`. |
 | **D: Unsupported position** | A position or `position … moves` sequence the original could not accept or reach | **Reject** (owner decision 2026-10-21; §9.4). Never extend data structures to accommodate it. |
+| **E: Approved extension** | Deeper search, iterative deepening, time management, reporting PV, pondering | **Implement exactly** as `docs/EXTENDED_SEARCH.md` specifies (owner decision 2026-10-21). Anything not in that document needs a new owner decision. |
 
 If the class is unclear, treat the bug as C (preserve) and raise it in `DEVIATIONS.md` under "pending decision".
 
@@ -277,9 +309,10 @@ The known items are already in `docs/DEVIATIONS.md`:
 - DEV-004: unchecked find-move;
 - DEV-005: root filter;
 - DEV-006: random sources;
-- DEV-007: abort.
+- DEV-007: abort;
+- DEV-008 to DEV-011: the extension.
 
-Deep-search crashes cannot occur: there is no iterative deepening, and the maximum ply is 7. Do not add deeper levels.
+In original mode the maximum ply is 7, so deep-search overflow cannot occur. In extended mode every structure that the original sized for ply ≤ 7 is relocated (`docs/EXTENDED_SEARCH.md` §2). Phase 4 must stress it at depth 20 and beyond.
 
 ### 8.4 `DEVIATIONS.md` entry format
 
@@ -302,23 +335,32 @@ Deep-search crashes cannot occur: there is no iterative deepening, and the maxim
 id name Cyrus IS Chess
 id author Richard Lang
 option name Level type combo default UCI var UCI var Level 1 var Level 2 var Level 3 var Level 4 var Level 5 var Level 6 var Level 7 var Level 8 var Level P1 var Level P2 var Level P3
+option name Profile type combo default Level 8 var Level 6 var Level 7 var Level 8
 option name OwnBook type check default true
+option name Ponder type check default false
+option name Move Overhead type spin default 30 min 0 max 5000
 option name Seed type spin default 0 min 0 max 2147483647
 ```
+- `Profile` chooses which original level's switches extended mode uses beyond the first pass:
+  - Level 6: threat extensions off, forward pruning on;
+  - Level 7: threat extensions on, forward pruning on;
+  - Level 8: threat extensions on, forward pruning off.
+
+  It is ignored in original mode.
 - Combo values contain spaces. In `setoption name Level value Level 3`, the value is the rest of the line after `value`. Match it case-insensitively; ignore unknown values with an `info string` warning.
 - `Seed` 0 means seed from the clock.
-- Do **not** advertise `Hash`, `Threads`, `MultiPV` or `Ponder`; the original has no equivalents.
+- Do **not** advertise `Hash`, `Threads` or `MultiPV`; the original has no equivalents.
 
 ### 9.2 Commands
-- **Commands:** `uci`, `isready`, `ucinewgame`, `setoption`, `position [startpos | fen <fen>] [moves …]`, `go`, `stop`, `quit`, `debug`. Ignore `ponderhit` safely.
-- **`go` parameters:** `wtime btime winc binc movestogo movetime depth nodes mate infinite searchmoves`.
+- **Commands:** `uci`, `isready`, `ucinewgame`, `setoption`, `position [startpos | fen <fen>] [moves …]`, `go`, `stop`, `ponderhit`, `quit`, `debug`.
+- **`go` parameters:** all of them: `searchmoves ponder wtime btime winc binc movestogo depth nodes mate movetime infinite`. Their meaning in each mode is in §9.5 and `docs/EXTENDED_SEARCH.md` §5.
 - **`searchmoves`:** uses the original's next-best exclusion list (`$BF00`). Every root move *not* listed is excluded. This is the original's own mechanism, so it is not a deviation.
 - **Threading:** one I/O thread reads stdin. The search runs on one worker thread and checks an atomic stop flag at the original's poll point (`$78BA`, the entry to every node). `isready` is answered promptly even while searching.
 - **`bestmove`:** printed exactly once per `go`, and always legal (§8.2). After `stop`, it is the move the original would play when interrupted at that point (`$BD29`).
 - **No legal moves** (checkmate or stalemate at the root): `bestmove 0000`.
 
 ### 9.3 `info` output
-- After the search: `info depth D seldepth S score cp X nodes N time T pv …`. Here D is the level's full-width depth, S the deepest ply reached, and N the number of `$7D43` node entries plus root makes (documented in `UCI.md`).
+- After each completed pass: `info depth D seldepth S score cp X nodes N nps R time T pv …`. Here D is the pass's full-width depth, S the deepest ply reached, and N the number of `$7D43` node entries plus root makes (documented in `UCI.md`). The PV comes from a reporting-only table (`docs/EXTENDED_SEARCH.md` §6).
 - **Score conversion:**
   - centipawns = (`$BCA0` − `$80`) × 100 / 8 (the evaluation's material scale is 8 units per pawn), from the engine's point of view;
   - `$BCA0` ≥ `$FE` is `score mate +M`, with M derived from `$BD0C`;
@@ -370,18 +412,16 @@ The original accepts a position only through a new game or set-up mode (key C). 
 
 ### 9.5 Levels and time
 
-The original has no clock (§3), so a level is a search shape, and on modern hardware every level finishes in milliseconds.
+The original has no clock (§3): a level is a fixed search shape.
 
-- **`Level = UCI` (default):**
-  - **Choosing a level:** each `go` picks the **highest original level, 1–8, whose predicted time fits the move budget**. In practice this is Level 8 except in extreme bullet. The prediction uses the measured node rate and per-level worst-case node counts (calibrated from oracle statistics and recorded in `UCI.md`).
-  - **Budget:** from `wtime/btime/winc/binc/movestogo` the budget is remaining / (`movestogo` or 30) + 0.75 × increment, capped at a third of the remaining time minus a safety margin. `movetime` sets the budget directly.
-  - **Hard limit:** if the search outlasts the hard limit anyway, the abort flag is set exactly as a key press (DEV-007).
-  - **`go depth N`:** plays Level min(N, 8). This is the deterministic test mode.
-  - **`go nodes N`:** runs Level 8 and aborts at the N-th node entry.
-  - **`go mate N`:** N = 1, 2, 3 runs P1, P2, P3. N > 3 gives `info string mate search limited to 3`, then P3.
-  - **`go infinite`:** runs Level 8, then holds `bestmove` until `stop`, because UCI forbids sending it earlier.
-- **`Level = Level 1 … Level 8`:** exactly that level, with clock parameters ignored. `stop` is the key press. With `infinite`, the result is held until `stop`.
-- **`Level = Level P1/P2/P3`:** the original problem search. If `$BCA0` < `$FE` afterwards, print `info string NO MATE FOUND` and send `bestmove 0000`, because the original makes no move.
+- **`Level = UCI` (default): extended mode.**
+  - Iterative deepening over the original's pass mechanism, with time management and every `go` parameter, exactly as `docs/EXTENDED_SEARCH.md` §3–§5 specifies.
+  - Pass 1 is the original Level-2 pass. Later passes use D = 4, 5, 6, … with the `Profile` switches.
+  - `go depth N` is the deterministic test mode; depths 1, 2 and 4 are the oracle anchors.
+- **`Level = Level 1 … Level 8`: original mode.** That exact level, using the original pass schedule, with clock parameters ignored.
+  - `stop` is the key press.
+  - With `infinite` or `ponder`, the result is held until `stop` or `ponderhit`.
+- **`Level = Level P1/P2/P3`:** the original problem search. If `$BCA0` < `$FE` afterwards, print `info string NO MATE FOUND` and send `bestmove 0000`, because the original makes no move. (In extended mode, `go mate N` handles mates of any length.)
 - **Opening book:** probed exactly as the original does, when `OwnBook` is true. That means games from the standard start only, in every level, unless `searchmoves` (next-best mode) is active.
 
 ### 9.6 Game state between commands
@@ -391,7 +431,8 @@ The engine behaves like one original program left running in HUMAN v CYRUS mode.
 - **The memory image persists across commands.** That includes `$BCA0`, `$BCCE`, `$BD4A`, the game record, the book state and the stale workspace. Nothing is reset that the original would not reset.
 - **`ucinewgame`** = the original's new game (G, Y). Like the original, it does not reset `$BCA0`.
 - **After `go`:** the engine plays its `bestmove` into its own game through PlayMove, as the original does.
-- **The next `position`:** if its move list extends the engine's current game (same start, and the moves so far are a prefix), only the new moves are applied (step 6 of §9.4). Otherwise the position is rebuilt from scratch, as a user of the original would: a new game or set-up, then the moves entered.
+- **Checkpoints:** after each game move, keep a copy of the memory image (a few KB per ply).
+- **The next `position`:** if it shares a start position and a move prefix with the engine's game, restore the checkpoint at the end of the common prefix, then apply the remaining moves (step 6 of §9.4). Normal play extends the game by one or two moves; ponder misses and GUI takebacks diverge from an earlier ply. Otherwise the position is rebuilt from scratch, as a user of the original would: a new game or set-up, then the moves entered.
 - **`$BCCE`** is set from the PRNG at each `go` (DEV-006).
 
 ---
@@ -406,9 +447,10 @@ All of the following run via `zig build test` (fast subset) or `zig build test-f
 4. **Perft:** against true perft *and* against oracle perft. Divergences the oracle shares are original behaviour; classify each as B (fix at the root) or C (preserve).
 5. **Protocol tests:** scripted UCI sessions, including:
    - `stop` straight after `go`; `go wtime 10`; `isready` mid-search;
-   - every `Level` value; `go depth 1..8`; `go mate 1..5`; `go infinite`; `searchmoves`;
+   - every `Level` value and `Profile`;
+   - every `go` parameter alone and in combination: `go depth 1..20`, `go mate 1..8`, `go nodes`, `go movetime`, clock controls, `go infinite`, `go ponder` + `ponderhit`/`stop`, `searchmoves`;
    - rejected positions followed by `go`;
-   - incremental versus rebuilt `position` sequences;
+   - incremental, diverging (ponder miss, takeback) and rebuilt `position` sequences;
    - malformed input.
 6. **Rejection corpus** (`tests/positions/reject.epd`): each position with the expected verdict and reason, covering every condition in §9.4.
 7. **Stress and match tests:** self-play and gauntlets under `fastchess` with the `ReleaseSafe` build.
@@ -453,12 +495,14 @@ When you are stuck, write down what you know, what you tried and the exact addre
 4. **Unsupported positions:** rejected, not accommodated (class D, §9.4).
 5. **Levels:** exposed as the combo option `Level`. The default is `UCI`, followed by `Level 1`–`Level 8` and `Level P1`–`P3` (§9.5). UCI time options are accepted.
 6. **UCI identity:** `id name Cyrus IS Chess`, `id author Richard Lang`.
+7. **Deeper search** (owner, 2026-10-21): the engine may search deeper than the original and must support every UCI `go` command. Iterative deepening and time management are allowed, provided the evaluation and the search (move ordering, extensions, pruning) stay faithful. Design: `docs/EXTENDED_SEARCH.md`.
 
-### Proposed by the implementer after Phase 1 (to be confirmed by the owner)
+### Proposed by the implementer (to be confirmed by the owner)
 1. **Oracle:** SkoolKit's simulator plus committed golden files, rather than a new Zig Z80 core (§6 Phase 2).
-2. **Memory-image architecture** for the port (§6 Phase 3). Phase 1 showed that stale data and the memory layout are behaviour.
-3. **`Level = UCI`:** picks the highest original level that fits the time budget, so effectively Level 8. `go depth N` = Level N (§9.5).
-4. **FEN loading:** the canonical set-up construction in §9.4, and the game continuity rules in §9.6.
+2. **Memory-image architecture** for the port (§6 Phase 3). Phase 1 showed that stale data and the memory layout are behaviour. The per-ply storage is relocated as `EXTENDED_SEARCH` §2 describes.
+3. **Iterative deepening** built from the original's own two-pass mechanism. Pass 1 is the original Level 2, then D = 4, 5, …, so that depths 1, 2 and 4 reproduce original Levels 1, 2 and 6/7/8 exactly (`EXTENDED_SEARCH` §3).
+4. **`Profile` default Level 8:** threat extensions on, forward pruning off. These are the switches of the original's strongest level.
+5. **FEN loading:** the canonical set-up construction in §9.4, and the game continuity and checkpoint rules in §9.6.
 
 ### Resolved
 - *Spectrum-speed levels:* moot. The original has no clock; levels are search shapes, so each level plays the same moves on any hardware.

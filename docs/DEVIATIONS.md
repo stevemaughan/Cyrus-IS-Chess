@@ -50,3 +50,27 @@ Every behavioural difference between the Zig port and the original 48K Cyrus IS 
 - **Class:** platform adaptation. **Status:** planned.
 - **Original:** a key press sets `$BD4C` bit 7 at the next node entry (`$78BA`).
 - **Fix:** UCI `stop`, an exhausted time budget or `go nodes` sets the same flag at the same point. Everything after that is unchanged.
+
+## DEV-008: Extended mode (any depth, iterative deepening)
+- **Class:** E, approved extension (owner, 2026-10-21). **Status:** planned.
+- **Original:** the levels fix the full-width depth at 1–4. Levels 6–8 run a Level-2 pre-pass whose best move is searched first (`$BD6E`, `$FD` marker).
+- **Change:** in `Level = UCI`, a pass loop repeats that mechanism at D = 4, 5, 6, … up to `MAX_DEPTH` = 60. Pass 1 is the original Level-2 pass; the switches come from the `Profile` level. Specification: `docs/EXTENDED_SEARCH.md` §3.
+- **Behaviour where the original worked:** identical at the anchors (`go depth 1/2/4` = Levels 1/2/6–8). Original mode is unchanged.
+
+## DEV-009: Relocated per-ply storage
+- **Class:** E. **Status:** planned.
+- **Original:** the value, killer, current-move and slot tables (`$BC83–$BCB9`), the move-list area (`$B400–$BC7F`) and the undo stack (`$BD80–$BDF4`) are sized for ply ≤ 7.
+- **Change:** ply-indexed arrays sized `MAX_DEPTH+4`; move lists use 32-bit virtual addresses (identical to the original below `$BC80`, then continuing at `$10000`); list-pointer variables are 32-bit; a separate undo stack. Specification: `docs/EXTENDED_SEARCH.md` §2.
+- **Behaviour where the original worked:** identical, because every address comparison gives the same answer below `$BC80`.
+
+## DEV-010: Time management
+- **Class:** E. **Status:** planned.
+- **Change:** soft and hard limits from the UCI clock (`docs/EXTENDED_SEARCH.md` §4). Between passes, decide whether to start the next pass; within a pass, abort via DEV-007.
+
+## DEV-011: Reporting PV and pondering
+- **Class:** E. **Status:** planned.
+- **Change:**
+  - a reporting-only triangular PV table, updated where the original raises alpha and never read by the search;
+  - `bestmove … ponder …`;
+  - `go ponder` / `ponderhit`;
+  - memory-image checkpoints per game ply, so a diverging `position` (ponder miss, takeback) restores state exactly (AGENTS.md §9.6).

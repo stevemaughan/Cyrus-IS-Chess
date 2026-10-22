@@ -17,6 +17,8 @@ This is the specification the Zig port is checked against. The detail lives in t
 
 ## Facts that shape the port
 
+The port also has an **extended mode** that lets this search run deeper with iterative deepening and time management (owner decision, 2026-10-21). It is specified in [EXTENDED_SEARCH.md](EXTENDED_SEARCH.md); the facts below describe the original itself.
+
 1. **There is no clock.** [V] Nothing reads FRAMES or any timer.
    - A *level* fixes the search shape:
      - full-width depth D = 1, 2, 2, 2, 3, 4, 4, 4 for Levels 1–8;

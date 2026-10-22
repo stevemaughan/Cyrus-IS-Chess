@@ -23,4 +23,6 @@ One row per port unit, in Phase 3 order (AGENTS.md §6).
 | 3.10 | Problem levels | same as 3.9 (levels 0/3/7) | 30 §5, 10 §6.7 | `search/model.py` | – | – |
 | 3.11 | Levels and termination | `$7C44`–`$7CB7`, `$78BA` | 30 §5–6 | `search/model.py` | – | – |
 | 3.12 | Opening book | `$7AC7`–`$7B95` | 25 | `tools/scripts/book_dump.py` | – | – |
-| — | Game-move path (PlayMove, 50-move, repetition tracking) | `$6323`, `$6560` | 10 §5, §6.5 | – | – | – |
+| 3.11 | Game-move path (PlayMove, 50-move, repetition tracking) | `$6323`, `$6560` | 10 §5, §6.5 | – | – | – |
+| 3.12 | Extended driver: pass schedule, relocated per-ply storage | generalises `$7BE1`/`$7BF1` | EXTENDED_SEARCH §2–3 | – | – | anchors vs Levels 1/2/6/7/8 |
+| 5 | Time management, PV reporting, pondering, checkpoints | new | EXTENDED_SEARCH §4–6, AGENTS §9.6 | n/a | – | protocol tests |
