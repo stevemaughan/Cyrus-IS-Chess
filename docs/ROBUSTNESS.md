@@ -9,6 +9,7 @@ AGENTS.md §6 Phase 4: no crashes, hangs, illegal moves or safety panics. This r
 | Perft, 126 positions (`cyrus perftsuite`) | 3,732,770,300 leaves, 0 differences |
 | Self-play, 10,000 games, ReleaseSafe | 941,836 plies, 0 failures (after the fixes in §3.1) |
 | fastchess, ReleaseSafe, UHO openings | 4,400 games at 0.5+0, 1+0.01 and 10+0.1: 0 time losses, illegal moves or disconnects (after the fixes in §7) |
+| After the code review (§9) | all tests, 2,000 self-play games and 2,000 fastchess games repeated |
 | UCI stress (`tools/scripts/uci_stress.py`), ReleaseSafe | 0 failures |
 | UCI smoke (`tools/scripts/uci_smoke.py`) | 41/41 |
 | Unit and golden tests (`zig build test`, `test-engine`, `test-perft`) | all pass |
@@ -149,3 +150,32 @@ All 4,400 games ended normally (mate, repetition, stalemate, insufficient materi
 ## 8. Not done here
 
 - **`cutechess-cli`:** not installed on the test machine. It is required for Phase 5's protocol exit criteria, together with GUI play.
+
+## 9. After the code review
+
+An external review (`docs/CODE_REVIEW.md`) found ten defects that the runs above had not exposed. They are fixed as described in `docs/CODE_REVIEW_PLAN.md`:
+- two crashes: `ponderhit` with currline, and overflowing `go` parameters;
+- extended mode still limited to the original 544 list entries;
+- fixed levels obeying `go` limits;
+- `searchmoves` leaks;
+- input blocked behind a long search;
+- lax input validation;
+- refutation suffixes.
+
+The regression afterwards, on the ReleaseSafe build:
+
+| Check | Result |
+|---|---|
+| `zig build test`, now including the search golden comparisons and `search-high` (2,266 more searches at Levels 6–8 and P1–P3) | 72 tests pass; every comparison 0 differences |
+| `zig build test-driver -Ddeep=true` | passes; no search aborts, including a line beyond the original list area |
+| `zig build check-unverified` | 0 tags; all 9 reference checksums match |
+| `uci_smoke.py` / `uci_stress.py` (with the review's command-flow cases) | 41/41; 0 failures |
+| Self-play, 2,000 games (seeds 3,000,000–3,001,999) | 189,427 plies, 0 failures (1,528 clock sides: 372 with no increment, 476 pondering) |
+| fastchess 1+0.01, 2,000 games | all 2,000 ended normally (+660 −607 =733): 0 time losses, illegal moves or disconnects, and no "Illegal PV move" warning. The only warnings are the expected "PV continues after threefold repetition / fifty-move rule" (§7) |
+
+**Lesson:** self-play and fastchess exercise what GUIs normally send, so they could not find:
+- `ponderhit` combined with an option nobody had switched on;
+- a capacity limit reached only by long analysis;
+- commands sent mid-search without `stop`.
+
+The review's reproductions are now part of the engine tests and `uci_stress.py`.
