@@ -1,6 +1,6 @@
 """Generate search golden files from the original program.
 
-Each record is one scripted session (AGENTS.md Â§9.6, oracle.Session) and the
+Each record is one scripted session (AGENTS.md §9.6, oracle.Session) and the
 result of every computer move in it:
   state        what the search can read, captured when ComputerMove starts
   root/root_scored  the root move list as generated, and after static scoring

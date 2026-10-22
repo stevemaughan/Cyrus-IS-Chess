@@ -1,6 +1,6 @@
 //! Engine state of the Cyrus IS Chess port.
 //!
-//! Fidelity is behavioural (AGENTS.md Â§6 Phase 3): the memory layout of the
+//! Fidelity is behavioural (AGENTS.md §6 Phase 3): the memory layout of the
 //! original is not reproduced, but every original variable that influences a
 //! decision has one field here, named for its meaning, with the original
 //! address in its comment. `get`/`set` map original addresses to fields; they
@@ -9,7 +9,7 @@
 
 const std = @import("std");
 
-/// Deepest full-width depth in extended mode (docs/EXTENDED_SEARCH.md Â§2).
+/// Deepest full-width depth in extended mode (docs/EXTENDED_SEARCH.md §2).
 pub const max_depth = 60;
 /// Deepest ply that can be made: D + 3.
 pub const max_ply = max_depth + 3;
