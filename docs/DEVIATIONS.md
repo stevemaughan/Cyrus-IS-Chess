@@ -78,6 +78,23 @@ Every behavioural difference between the Zig port and the original 48K Cyrus IS 
 - **Behaviour change where the original worked:** none. The original cannot hold such a game.
 - **Test:** `src/engine.zig`, "rejected positions and no-move positions".
 
+## DEV-015: `searchmoves` is enforced at the output
+- **Class:** B (platform adaptation of the N key). **Status:** implemented.
+- **Original:** next-best mode (`$BF00` exclusions) has three ways out that are wrong for UCI `searchmoves`:
+  - the static best is chosen as the move to play before the exclusions are applied (`$7C49` before `$7CBA`), so a search stopped early plays it;
+  - when every move is excluded, NO MORE MOVES clears the list and searches everything (`$7CDF`);
+  - the list holds from/to only, so an under-promotion cannot be told from the queen promotion.
+- **Fix** (`Engine.SearchMoves`, `src/engine.zig`):
+  - **Searchable moves:** a listed move is searchable if it is legal and is not an under-promotion (the original searches queen promotions only). A promotion must carry its suffix.
+  - **The search:** every other legal root move is excluded through the original's list, as before.
+  - **The output:** if `bestmove` is not listed, the first listed move in the original's root order is played instead, with an `info string`.
+  - **Nothing searchable** (owner decision 2026-10-22):
+    - nothing listed: no restriction;
+    - only illegal moves listed: `bestmove 0000`;
+    - only an under-promotion listed: it is played unsearched.
+- **Behaviour change where the original worked:** none. The search inside next-best mode is unchanged.
+- **Test:** `src/engine.zig`, "searchmoves is enforced on every path".
+
 ## DEV-008: Extended mode (any depth, iterative deepening)
 - **Class:** E, approved extension (owner, 2026-10-21). **Status:** implemented.
 - **Original:** the levels fix the full-width depth at 1–4. Levels 6–8 run a Level-2 pre-pass whose best move is searched first (`$BD6E`, `$FD` marker).
@@ -89,6 +106,8 @@ Every behavioural difference between the Zig port and the original 48K Cyrus IS 
 - **Original:** the per-ply tables, the move-list area (544 entries; when full, the search aborts as if a key were pressed) and the undo stack are sized for ply ≤ 7.
 - **Change:** original mode keeps the 544-entry limit and its abort. Extended mode uses per-ply arrays sized `MAX_DEPTH+4` and a 32,768-entry list area. The address-based list-size tests become offset tests (`docs/EXTENDED_SEARCH.md` §2).
 - **Behaviour where the original worked:** none. The offset tests are exactly the original tests, and the larger capacity only matters where the original would have aborted.
+- **As built:** each `go` sets `State.list_limit` (`src/engine.zig`). Until the code review (CR-02) the extended limit was never selected, so extended searches still aborted when one line's lists passed 544 entries (e.g. depth 6 in `3qk3/8/q6q/8/8/Q6Q/8/3QK3 w`).
+- **Tests:** `src/engine.zig`, "extended mode uses the extended move-list area"; the `-Ddeep` test fails on any abort.
 
 ## DEV-010: Time management
 - **Class:** E. **Status:** implemented.

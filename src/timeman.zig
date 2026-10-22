@@ -27,10 +27,11 @@ pub fn budget(c: Clock, overhead_ms: u64) Limits {
         return .{ .soft_ms = t, .hard_ms = t, .use_all = true };
     }
     const t = c.time_ms orelse return .{ .soft_ms = null, .hard_ms = null };
+    // Saturating: the parser accepts any u64 clock or increment.
     const mtg: u64 = c.movestogo orelse 30;
-    const soft = t / @max(mtg, 1) + c.inc_ms * 3 / 4;
+    const soft = t / @max(mtg, 1) +| (c.inc_ms *| 3) / 4;
     const third = t / 3;
-    const hard_raw = @min(soft * 5, third);
+    const hard_raw = @min(soft *| 5, third);
     // Nearly flagged: 0 means "move now" (abort at the first node entry).
     const hard = if (hard_raw > overhead_ms) hard_raw - overhead_ms else 0;
     return .{ .soft_ms = @min(soft, hard), .hard_ms = hard };
@@ -64,6 +65,16 @@ test "clock budget" {
     // nearly flagged: hard limit a third of the remaining time
     const tiny = budget(.{ .time_ms = 90 }, 30);
     try std.testing.expect(tiny.hard_ms.? <= 30);
+}
+
+test "extreme clocks do not overflow" {
+    const max = std.math.maxInt(u64);
+    const a = budget(.{ .time_ms = 10_000, .inc_ms = max }, 30);
+    try std.testing.expect(a.hard_ms.? <= 10_000 / 3);
+    const b = budget(.{ .time_ms = max, .inc_ms = max, .movestogo = 0 }, 30);
+    try std.testing.expect(b.soft_ms.? <= b.hard_ms.?);
+    _ = budget(.{ .movetime_ms = max }, max);
+    _ = budget(.{ .time_ms = 0 }, 0);
 }
 
 test "no clock means no limits" {

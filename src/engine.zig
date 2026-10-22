@@ -123,6 +123,8 @@ pub const Engine = struct {
     /// searches the position the GUI set, even though the engine plays its
     /// own move into its game after each `go`).
     go_base: ?GoBase = null,
+    /// Nodes (calls to make) of the last search, for tests.
+    last_nodes: u64 = 0,
 
     const GoBase = struct {
         cp: Checkpoint,
@@ -435,22 +437,53 @@ pub const Engine = struct {
             .human => return e.finishNoMove(g, sig, "not the engine's turn"),
         }
 
-        // searchmoves: every other root move goes on the next-best exclusion list.
-        if (g.searchmoves) |text| try e.excludeAllBut(text);
+        // searchmoves (DEV-015): every other root move goes on the original's
+        // next-best exclusion list; the output is checked against the list.
+        var allowed: ?SearchMoves = null;
+        if (g.searchmoves) |text| {
+            const sm = SearchMoves.init(s, text);
+            if (sm.listed) {
+                if (sm.len == 0) {
+                    if (sm.under) |m| {
+                        // Not played into the engine's game: the next
+                        // `position` restores the checkpoint and enters it.
+                        return e.finish(g, sig, "searchmoves: only an under-promotion is listed; playing it unsearched", m);
+                    }
+                    return e.finishNoMove(g, sig, "searchmoves: no listed move is legal");
+                }
+                sm.exclude(s);
+                allowed = sm;
+            }
+        }
         // DEV-006: the random byte; OwnBook off = out of book.
         s.random = e.rng.byte();
         if (!e.opts.own_book) s.book_state = 0xFF;
+
+        // The move-list capacity (DEV-009): the original area, whose filling
+        // aborts the search, in original mode; the extended area otherwise.
+        // Headroom past the last entry for the terminator and next header.
+        const original_mode = e.opts.level != null;
+        s.list_limit = if (original_mode) st.list_end_original else st.listAddr(st.list_bytes_extended - 64);
 
         var ctl: Control = .{
             .e = e,
             .sig = sig,
             .start_ms = start_ms,
+            .clock_ms = start_ms,
             .pondering = g.ponder,
             .infinite = g.infinite,
             .nodes_limit = g.nodes,
             .mate_limit = g.mate,
         };
-        ctl.computeLimits(g);
+        // AGENTS.md §9.5: a fixed level is the original's exact search shape;
+        // only `stop` (the key press) ends it early. Clock, nodes, depth and
+        // mate limits are ignored; infinite / ponder still hold `bestmove`.
+        if (original_mode) {
+            ctl.nodes_limit = null;
+            ctl.mate_limit = null;
+        } else {
+            ctl.computeLimits(g);
+        }
         var info: Info = .{};
         const ctl_obs = ctl.observer();
         info.next = &ctl_obs;
@@ -465,6 +498,7 @@ pub const Engine = struct {
         else
             driver.computerMove(s, &rsrc, &obs, sopts, ctl.plan());
 
+        e.last_nodes = info.nodes;
         // `infinite` and `ponder` hold `bestmove` until stop / ponderhit.
         ctl.waitForRelease();
 
@@ -484,13 +518,23 @@ pub const Engine = struct {
                 const em = s.entry(entry);
                 if (!legal.isLegal(s, em[1] & 0x7F, em[2])) {
                     // DEV-005: never output an illegal move.
-                    const fb = legal.firstLegalRootMove(s) orelse {
+                    const fb = legal.firstLegalRootMove(s, if (allowed) |*a| a.moves[0..a.len] else null) orelse {
                         e.out.line("info string error: the search returned an illegal move and no legal move was found");
                         e.out.line("bestmove 0000");
                         return;
                     };
                     e.out.line("info string DEV-005: the search's move was illegal; playing the first legal root move");
                     entry = fb;
+                }
+                if (allowed) |*a| {
+                    const m = s.entry(entry);
+                    if (!a.has(m[1] & 0x7F, m[2])) {
+                        // DEV-015: e.g. a search stopped before its first root
+                        // move keeps the static best, chosen before the
+                        // exclusions applied.
+                        entry = legal.firstLegalRootMove(s, a.moves[0..a.len]).?;
+                        e.out.line("info string searchmoves: the search's move is not listed; playing the first listed move");
+                    }
                 }
                 const mv = s.entry(entry);
                 const best: info_mod.Move = .{ .from = mv[1] & 0x7F, .to = mv[2], .promo = info_mod.isPromotion(s, mv[1] & 0x7F, mv[2]) };
@@ -513,36 +557,82 @@ pub const Engine = struct {
     }
 
     fn finishNoMove(e: *Engine, g: uci_parse.Go, sig: *Signals, why: []const u8) void {
+        e.finish(g, sig, why, "0000");
+    }
+
+    /// `info string why`, then (after holding for `infinite` / `ponder`)
+    /// `bestmove move`, without a search.
+    fn finish(e: *Engine, g: uci_parse.Go, sig: *Signals, why: []const u8, move: []const u8) void {
         e.out.print("info string {s}", .{why});
         if (g.infinite or g.ponder) {
             while (!sig.stop.load(.acquire) and !(g.ponder and sig.ponderhit.load(.acquire)))
                 e.io.sleep(.fromMilliseconds(1), .awake) catch {};
         }
-        e.out.line("bestmove 0000");
+        e.out.print("bestmove {s}", .{move});
     }
 
-    fn excludeAllBut(e: *Engine, text: []const u8) !void {
-        const s = e.s;
-        var keep: std.ArrayList(game.Move) = .empty;
-        defer keep.deinit(e.gpa);
-        var it = std.mem.tokenizeAny(u8, text, " \t");
-        while (it.next()) |t| try keep.append(e.gpa, game.Move.parse(t) catch continue);
-        var all: [256]legal.Move = undefined;
-        const n = @min(legal.legalMoves(s, &all), all.len);
-        s.exclusion_len = 0;
-        for (all[0..n]) |m| {
-            var listed = false;
-            for (keep.items) |k| {
-                if (k.from == m.from and k.to == m.to) listed = true;
+    /// `go searchmoves …` (DEV-015, owner decision 2026-10-22). The engine can
+    /// search a listed move only if it is legal and not an under-promotion
+    /// (the original promotes to a queen only); a promotion must carry its
+    /// suffix. An empty list means no restriction.
+    const SearchMoves = struct {
+        /// Any move token at all was given.
+        listed: bool = false,
+        moves: [256]legal.Move = undefined,
+        len: usize = 0,
+        /// The first listed legal under-promotion, as listed (e.g. "a7a8n").
+        under: ?[]const u8 = null,
+
+        fn init(s: *State, text: []const u8) SearchMoves {
+            var sm: SearchMoves = .{};
+            var all: [256]legal.Move = undefined;
+            const n = @min(legal.legalMoves(s, &all), all.len);
+            var it = std.mem.tokenizeAny(u8, text, " \t");
+            while (it.next()) |t| {
+                sm.listed = true;
+                const m = game.Move.parse(t) catch continue;
+                var is_legal = false;
+                for (all[0..n]) |a| {
+                    if (a.from == m.from and a.to == m.to) is_legal = true;
+                }
+                if (!is_legal) continue;
+                if (legal.isPawnPromotion(s, m.from, m.to)) {
+                    if (m.promo == 0) continue;
+                    if (m.promo != 'q') {
+                        if (sm.under == null) sm.under = t;
+                        continue;
+                    }
+                } else if (m.promo != 0) continue;
+                if (!sm.has(m.from, m.to) and sm.len < sm.moves.len) {
+                    sm.moves[sm.len] = .{ .from = m.from, .to = m.to };
+                    sm.len += 1;
+                }
             }
-            if (listed or s.exclusion_len + 2 > s.exclusion.len) continue;
-            s.exclusion[s.exclusion_len] = m.from;
-            s.exclusion[s.exclusion_len + 1] = m.to;
-            s.exclusion_len += 2;
+            return sm;
         }
-        // Next-best mode keeps the list (and skips the book), as the N key does.
-        if (s.exclusion_len != 0) s.next_best = 1;
-    }
+
+        fn has(sm: *const SearchMoves, from: u8, to: u8) bool {
+            for (sm.moves[0..sm.len]) |m| {
+                if (m.from == from and m.to == to) return true;
+            }
+            return false;
+        }
+
+        /// Every other legal root move goes on the next-best exclusion list.
+        fn exclude(sm: *const SearchMoves, s: *State) void {
+            var all: [256]legal.Move = undefined;
+            const n = @min(legal.legalMoves(s, &all), all.len);
+            s.exclusion_len = 0;
+            for (all[0..n]) |m| {
+                if (sm.has(m.from, m.to) or s.exclusion_len + 2 > s.exclusion.len) continue;
+                s.exclusion[s.exclusion_len] = m.from;
+                s.exclusion[s.exclusion_len + 1] = m.to;
+                s.exclusion_len += 2;
+            }
+            // Next-best mode keeps the list (and skips the book), as the N key does.
+            if (s.exclusion_len != 0) s.next_best = 1;
+        }
+    };
 
     pub fn nowMs(e: *Engine) u64 {
         const t = std.Io.Clock.awake.now(e.io).nanoseconds;
@@ -556,7 +646,11 @@ const Control = struct {
     e: *Engine,
     sig: *Signals,
     info: *Info = undefined,
+    /// The `go`: origin of everything reported (time, nps, pass durations,
+    /// currline pacing).
     start_ms: u64,
+    /// Origin of the time limits: the `go`, or the `ponderhit`.
+    clock_ms: u64,
     pondering: bool,
     infinite: bool,
     nodes_limit: ?u64,
@@ -588,7 +682,7 @@ const Control = struct {
     fn plan(c: *Control) driver.Plan {
         var max: u32 = st.max_depth;
         if (c.depth_limit) |d| max = @min(max, @max(d, 1));
-        if (c.mate_limit) |m| max = @min(max, 2 * m + 1);
+        if (c.mate_limit) |m| max = @min(max, 2 *| m +| 1); // any accepted `mate N`
         return .{ .profile = c.e.opts.profile, .max_depth = @intCast(max), .ctx = c, .nextPass = nextPass };
     }
 
@@ -596,11 +690,16 @@ const Control = struct {
         return c.e.nowMs() -| c.start_ms;
     }
 
+    /// Time used against the limits (since `go`, or since `ponderhit`).
+    fn clockElapsed(c: *Control) u64 {
+        return c.e.nowMs() -| c.clock_ms;
+    }
+
     /// ponderhit: from now on the move's clock runs (EXTENDED_SEARCH §5).
     fn checkPonderhit(c: *Control) void {
         if (c.pondering and c.sig.ponderhit.load(.acquire)) {
             c.pondering = false;
-            c.start_ms = c.e.nowMs();
+            c.clock_ms = c.e.nowMs();
             if (!c.infinite) c.limits = timeman.budget(c.clock, c.e.opts.move_overhead);
         }
     }
@@ -618,7 +717,7 @@ const Control = struct {
             }
         }
         if (c.pondering or c.infinite) return true;
-        return timeman.startNextPass(c.limits, c.elapsed(), c.last_pass_ms, c.prev_pass_ms);
+        return timeman.startNextPass(c.limits, c.clockElapsed(), c.last_pass_ms, c.prev_pass_ms);
     }
 
     fn observer(c: *Control) Observer {
@@ -640,10 +739,10 @@ const Control = struct {
         // the first, so that a nearly flagged engine moves at once.
         if (c.node_entries & 63 == 1) {
             c.checkPonderhit();
-            const t = c.elapsed();
             if (!c.pondering and !c.infinite) {
-                if (c.limits.hard_ms) |h| if (t >= h) return true;
+                if (c.limits.hard_ms) |h| if (c.clockElapsed() >= h) return true;
             }
+            const t = c.elapsed();
             if (c.e.opts.show_currline and t >= 1000 and t - c.last_currline_ms >= 1000) {
                 c.last_currline_ms = t;
                 var buf: [1024]u8 = undefined;
@@ -821,6 +920,149 @@ fn bestmove(t: *TestOut) []const u8 {
         }
     }
     return "";
+}
+
+fn goThread(e: *Engine, sig: *Signals, line: []const u8) void {
+    run(e, sig, line) catch {};
+}
+
+test "ponderhit after currline reports (code review CR-01)" {
+    // ponderhit restarted the clock origin that the currline pacing also used:
+    // `t - last_currline_ms` underflowed once the search ran 1 s past it.
+    const gpa = std.testing.allocator;
+    var out: TestOut = .{ .gpa = gpa };
+    defer out.deinit();
+    errdefer out.dump();
+    const e = try Engine.init(gpa, std.testing.io, out.output());
+    defer e.deinit();
+    var sig: Signals = .{};
+    try run(e, &sig, "setoption name OwnBook value false");
+    try run(e, &sig, "setoption name UCI_ShowCurrLine value true");
+    try run(e, &sig, "position startpos");
+    const t = try std.Thread.spawn(.{}, goThread, .{ e, &sig, "go ponder wtime 600000 btime 600000" });
+    try std.testing.io.sleep(.fromMilliseconds(2300), .awake);
+    sig.ponderhit.store(true, .release);
+    try std.testing.io.sleep(.fromMilliseconds(1500), .awake);
+    sig.stop.store(true, .release);
+    t.join();
+    try std.testing.expect(out.has("info currline"));
+    try std.testing.expect(bestmove(&out).len >= 4);
+}
+
+test "extreme go parameters (code review CR-06)" {
+    const gpa = std.testing.allocator;
+    var out: TestOut = .{ .gpa = gpa };
+    defer out.deinit();
+    errdefer out.dump();
+    const e = try Engine.init(gpa, std.testing.io, out.output());
+    defer e.deinit();
+    var sig: Signals = .{};
+    try run(e, &sig, "setoption name OwnBook value false");
+    try run(e, &sig, "position startpos");
+    try run(e, &sig, "go mate 2147483648 movetime 50");
+    try std.testing.expect(bestmove(&out).len >= 4);
+    out.clear();
+    try run(e, &sig, "position startpos");
+    try run(e, &sig, "go wtime 300 btime 300 winc 18446744073709551615 binc 18446744073709551615");
+    try std.testing.expect(bestmove(&out).len >= 4);
+}
+
+test "extended mode uses the extended move-list area (code review CR-02)" {
+    // Depth 6 here needs more than the original's 544 list entries along
+    // one line; with the original limit the pass aborted and depth 5 was
+    // the last completed.
+    const gpa = std.testing.allocator;
+    var out: TestOut = .{ .gpa = gpa };
+    defer out.deinit();
+    errdefer out.dump();
+    const e = try Engine.init(gpa, std.testing.io, out.output());
+    defer e.deinit();
+    var sig: Signals = .{};
+    try run(e, &sig, "setoption name Seed value 7");
+    try run(e, &sig, "setoption name OwnBook value false");
+    try run(e, &sig, "position fen 3qk3/8/q6q/8/8/Q6Q/8/3QK3 w - - 0 1");
+    try run(e, &sig, "go depth 6");
+    try std.testing.expect(out.has("info depth 6 "));
+    try std.testing.expect(e.s.search_flags & 0x80 == 0); // no abort
+    // A fixed level keeps the original area.
+    try run(e, &sig, "setoption name Level value Level 8");
+    try run(e, &sig, "position fen 3qk3/8/q6q/8/8/Q6Q/8/3QK3 w - - 0 1");
+    try run(e, &sig, "go");
+    try std.testing.expectEqual(st.list_end_original, e.s.list_limit);
+}
+
+test "fixed levels ignore go limits (code review CR-03)" {
+    const gpa = std.testing.allocator;
+    var out: TestOut = .{ .gpa = gpa };
+    defer out.deinit();
+    errdefer out.dump();
+    const e = try Engine.init(gpa, std.testing.io, out.output());
+    defer e.deinit();
+    var sig: Signals = .{};
+    for ([_][]const u8{ "Level 1", "Level 4", "Level 8" }) |level| {
+        var first: [8]u8 = undefined;
+        var first_len: usize = 0;
+        var first_nodes: u64 = 0;
+        for ([_][]const u8{ "go", "go nodes 1", "go wtime 1 btime 1", "go depth 1", "go movetime 1", "go mate 1" }, 0..) |cmd, k| {
+            out.clear();
+            try run(e, &sig, "setoption name Seed value 7");
+            try run(e, &sig, "setoption name OwnBook value false");
+            var buf: [64]u8 = undefined;
+            try run(e, &sig, try std.fmt.bufPrint(&buf, "setoption name Level value {s}", .{level}));
+            try run(e, &sig, "position startpos moves e2e4 c7c5 g1f3 d7d6");
+            try run(e, &sig, cmd);
+            const bm = bestmove(&out);
+            const nodes = e.last_nodes;
+            if (k == 0) {
+                @memcpy(first[0..bm.len], bm);
+                first_len = bm.len;
+                first_nodes = nodes;
+            } else {
+                try std.testing.expectEqualStrings(first[0..first_len], bm);
+                try std.testing.expectEqual(first_nodes, nodes);
+            }
+        }
+    }
+}
+
+test "searchmoves is enforced on every path (code review CR-04)" {
+    const gpa = std.testing.allocator;
+    var out: TestOut = .{ .gpa = gpa };
+    defer out.deinit();
+    errdefer out.dump();
+    const e = try Engine.init(gpa, std.testing.io, out.output());
+    defer e.deinit();
+    var sig: Signals = .{};
+    try run(e, &sig, "setoption name Seed value 7");
+    try run(e, &sig, "setoption name OwnBook value false");
+    const cases = [_]struct { pos: []const u8, go: []const u8, want: []const u8 }{
+        // a search cut short keeps the static best, chosen before the exclusions
+        .{ .pos = "position startpos", .go = "go searchmoves a2a3 nodes 1", .want = "a2a3" },
+        .{ .pos = "position startpos", .go = "go searchmoves a2a3 wtime 1 btime 1", .want = "a2a3" },
+        .{ .pos = "position startpos", .go = "go searchmoves h2h3 g1f3 movetime 1", .want = "" },
+        // no moves listed: no restriction (owner decision)
+        .{ .pos = "position startpos", .go = "go searchmoves depth 1", .want = "" },
+        // nothing legal listed
+        .{ .pos = "position startpos", .go = "go searchmoves e2e5 depth 1", .want = "0000" },
+        // under-promotion only: played unsearched
+        .{ .pos = "position fen 7k/P7/8/8/8/8/8/7K w - - 0 1", .go = "go searchmoves a7a8n depth 1", .want = "a7a8n" },
+        // a promotion without its suffix is not a move
+        .{ .pos = "position fen 7k/P7/8/8/8/8/8/7K w - - 0 1", .go = "go searchmoves a7a8 h1g1 depth 2", .want = "h1g1" },
+        .{ .pos = "position fen 7k/P7/8/8/8/8/8/7K w - - 0 1", .go = "go searchmoves a7a8q depth 2", .want = "a7a8q" },
+    };
+    for (cases) |c| {
+        out.clear();
+        try run(e, &sig, c.pos);
+        try run(e, &sig, c.go);
+        const bm = bestmove(&out);
+        if (c.want.len > 0) {
+            try std.testing.expectEqualStrings(c.want, bm);
+        } else if (std.mem.indexOf(u8, c.go, "h2h3") != null) {
+            try std.testing.expect(std.mem.eql(u8, bm, "h2h3") or std.mem.eql(u8, bm, "g1f3"));
+        } else {
+            try std.testing.expect(bm.len == 4);
+        }
+    }
 }
 
 test "uci identity and options" {

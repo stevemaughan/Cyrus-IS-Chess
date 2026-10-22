@@ -7,7 +7,7 @@ result of every computer move in it:
   out          make-sequence hash and counts, move played, root value, ...
 
 Usage:
-  python tools/oracle/golden_search.py OUT.jsonl --sessions N [--seed S] [--jobs J]
+  python tools/oracle/golden_search.py OUT.jsonl --sessions N [--seed S] [--jobs J] [--levels L:W,...]
 """
 
 import argparse
@@ -46,7 +46,9 @@ def random_playout(rng, plies):
     return b, moves
 
 
-def pick_level(rng, final):
+def pick_level(rng, final, levels=None):
+    if levels:
+        return rng.choices([lv for lv, _ in levels], weights=[w for _, w in levels])[0]
     if final and rng.random() < 0.12:
         return rng.choice([8, 9, 10])
     return rng.choices(range(8), weights=[3, 3, 3, 3, 3, 1, 1, 1])[0]
@@ -61,7 +63,9 @@ def cyrus_uci(board, move):
     return mv
 
 
-def build_and_run(seed):
+def build_and_run(item):
+    """item: a seed, or (seed, levels) with levels a list of (level index, weight)."""
+    seed, levels = item if isinstance(item, tuple) else (item, None)
     rng = random.Random(seed)
     kind = rng.choices(['prefix', 'fen', 'game', 'multi'], weights=[4, 3, 2, 1])[0]
     session_ops = []
@@ -84,7 +88,7 @@ def build_and_run(seed):
         n_goes = {'prefix': 1, 'fen': 1, 'game': rng.randint(3, 8), 'multi': 2}[kind]
         for g in range(n_goes):
             final = g == n_goes - 1
-            level = pick_level(rng, final)
+            level = pick_level(rng, final, levels)
             bcce = rng.randrange(256)
             r_bytes = [rng.randrange(256) for _ in range(16)]
             op = {'op': 'go', 'level': level, 'bcce': bcce, 'r': r_bytes}
@@ -194,8 +198,16 @@ def main():
     ap.add_argument('--epd', help='instead of random sessions, search each FEN of this file at several levels')
     ap.add_argument('--book', help='instead of random sessions, probe every book position listed in this file '
                                    '(tools/research/book/book-uci.txt) with two random sequences')
+    ap.add_argument('--levels', help='random sessions at these levels only, e.g. "Level 6:272,Level P1:416" '
+                                     '(name:weight; every computer move picks one by weight)')
     ap.add_argument('--jobs', type=int, default=max(1, os.cpu_count() - 1))
     args = ap.parse_args()
+    levels = None
+    if args.levels:
+        levels = []
+        for part in args.levels.split(','):
+            name, _, w = part.partition(':')
+            levels.append((LEVEL_NAMES.index(name.strip()), float(w or 1)))
     if args.book:
         lines = [[]]
         with open(args.book) as f:
@@ -232,11 +244,12 @@ def main():
         print(f'wrote {args.out}: {len(results)} searches')
         return
     seeds = [args.seed * 1_000_000 + i for i in range(args.sessions)]
+    items = [(sd, levels) for sd in seeds] if levels else seeds
     t0 = time.time()
     done = 0
     results = []
     with mp.Pool(args.jobs) as pool:
-        for rec in pool.imap_unordered(build_and_run, seeds):
+        for rec in pool.imap_unordered(build_and_run, items):
             results.append(rec)
             done += 1
             if done % 10 == 0:
@@ -244,7 +257,7 @@ def main():
     results.sort(key=lambda r: r['seed'])
     with open_golden(args.out, 'w') as f:
         f.write(json.dumps({'golden': 'search', 'version': VERSION, 'seed': args.seed,
-                            'sessions': len(results),
+                            'sessions': len(results), 'levels': args.levels,
                             'snapshot': 'reference/snapshots/cyrus48-idle-level1.z80'}) + '\n')
         for rec in results:
             f.write(json.dumps(rec, separators=(',', ':')) + '\n')

@@ -254,16 +254,31 @@ pub fn legalPrefix(root: *const State, scratch: *State, line: []const Move, prom
 }
 
 /// DEV-005 fallback: the first legal entry of the root list (generated at
-/// `slot[1]`) in the original's order, or null.
-pub fn firstLegalRootMove(s: *State) ?u32 {
+/// `slot[1]`) in the original's order, or null. With `among`, only entries
+/// whose (from, to) is listed there count (the `searchmoves` fallback).
+pub fn firstLegalRootMove(s: *State, among: ?[]const Move) ?u32 {
     const start = st.listOffset(s.slot[1]) + 4;
     const end = st.listOffset(s.slot[2]);
     var off = start;
     while (off + 4 <= end) : (off += 4) {
         const e = s.lists[off..][0..4];
-        if (isLegal(s, e[1], e[2])) return st.listAddr(off);
+        const from = e[1] & 0x7F;
+        if (!isLegal(s, from, e[2])) continue;
+        if (among) |list| {
+            for (list) |m| {
+                if (m.from == from and m.to == e[2]) return st.listAddr(off);
+            }
+            continue;
+        }
+        return st.listAddr(off);
     }
     return null;
+}
+
+/// Whether (from, to) moves a pawn to the last rank.
+pub fn isPawnPromotion(s: *const State, from: u8, to: u8) bool {
+    if (from & 0x88 != 0 or to & 0x88 != 0) return false;
+    return kindOf(s, s.board[from]) == .pawn and (to >> 4 == 0 or to >> 4 == 7);
 }
 
 test "root static scores agree with the legality test (search.jsonl.gz)" {

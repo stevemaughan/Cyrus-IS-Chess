@@ -243,13 +243,14 @@ test "anchors: interrupted searches (abort.jsonl.gz)" {
     try std.testing.expectEqual(@as(usize, 0), bad);
 }
 
-/// Highest list address any node's header reached.
+/// Highest list address reached: the node's header, and the end of the list
+/// generated below it (slot[ply + 1], set by the generator).
 const ListProbe = struct {
     max_slot: u32 = 0,
 
     fn onNode(ctx: ?*anyopaque, s: *const State) bool {
         const p: *ListProbe = @ptrCast(@alignCast(ctx.?));
-        p.max_slot = @max(p.max_slot, s.slot[s.ply]);
+        p.max_slot = @max(p.max_slot, s.slot[s.ply], s.slot[s.ply + 1]);
         return false;
     }
 };
@@ -257,7 +258,6 @@ const ListProbe = struct {
 test "deep search robustness (zig build test -Ddeep=true)" {
     const deep = @import("build_options").deep;
     if (!deep.enabled) return error.SkipZigTest;
-    const legal = @import("legal.zig");
     const gpa = std.testing.allocator;
     var buf: [1024]u8 = undefined;
     var g = try golden.open(gpa, std.testing.io, try golden.path(&buf, "search.jsonl.gz"));
@@ -276,21 +276,45 @@ test "deep search robustness (zig build test -Ddeep=true)" {
         if (state_v != .object) continue;
         s.* = .{};
         try golden.loadState(s, state_v.object);
-        var rb: [256]u8 = @splat(0x5A);
-        var scripted: st.ScriptedR = .{ .bytes = &rb };
-        var r = scripted.source();
-        var lp: ListProbe = .{};
-        const obs: Observer = .{ .ctx = &lp, .onNode = ListProbe.onNode };
-        const depth: u8 = @intCast(6 + positions % 3);
-        const outcome = driver.computerMove(s, &r, &obs, .{}, .{ .profile = .level8, .max_depth = depth });
-        if (outcome == .move) {
-            const e = s.entry(outcome.move);
-            try std.testing.expect(legal.isLegal(s, e[1] & 0x7F, e[2]));
-        }
-        max_slot = @max(max_slot, lp.max_slot);
+        max_slot = @max(max_slot, try deepSearch(s, @intCast(6 + positions % 3)));
         positions += 1;
     }
     std.debug.print("deep: {d} positions at depth 6-8, highest list header ${X}\n", .{ positions, max_slot });
     try std.testing.expect(positions > 0);
-    try std.testing.expect(max_slot < 0x10000 + st.list_bytes_extended);
+
+    // A line that needs more than the original's 544 list entries (CR-02),
+    // and a sparse position searched to depth 14 (seldepth 17+).
+    const game = @import("game.zig");
+    for ([_]struct { fen: []const u8, depth: u8, beyond_original: bool }{
+        .{ .fen = "3qk3/8/q6q/8/8/Q6Q/8/3QK3 w - - 0 1", .depth = 6, .beyond_original = true },
+        .{ .fen = "k7/2p5/K1P5/8/8/8/8/8 w - - 0 1", .depth = 14, .beyond_original = false },
+    }) |c| {
+        s.* = .{};
+        _ = try game.loadFen(s, c.fen);
+        _ = game.keyMove(s);
+        const top = try deepSearch(s, c.depth);
+        std.debug.print("deep: {s} depth {d}, highest list header ${X}\n", .{ c.fen, c.depth, top });
+        if (c.beyond_original) try std.testing.expect(top > st.list_end_original);
+    }
+}
+
+/// One extended search to `depth` in the extended list area. It must not
+/// abort (capacity or otherwise) and must return a legal move. Returns the
+/// highest list header reached.
+fn deepSearch(s: *State, depth: u8) !u32 {
+    const legal = @import("legal.zig");
+    s.list_limit = st.listAddr(st.list_bytes_extended - 64);
+    var rb: [256]u8 = @splat(0x5A);
+    var scripted: st.ScriptedR = .{ .bytes = &rb };
+    var r = scripted.source();
+    var lp: ListProbe = .{};
+    const obs: Observer = .{ .ctx = &lp, .onNode = ListProbe.onNode };
+    const outcome = driver.computerMove(s, &r, &obs, .{}, .{ .profile = .level8, .max_depth = depth });
+    try std.testing.expect(s.search_flags & 0x80 == 0);
+    if (outcome == .move) {
+        const e = s.entry(outcome.move);
+        try std.testing.expect(legal.isLegal(s, e[1] & 0x7F, e[2]));
+    }
+    try std.testing.expect(lp.max_slot < 0x10000 + st.list_bytes_extended);
+    return lp.max_slot;
 }
