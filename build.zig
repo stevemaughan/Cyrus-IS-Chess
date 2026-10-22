@@ -38,6 +38,8 @@ pub fn build(b: *std.Build) void {
             .imports = &.{.{ .name = "cyrus", .module = mod }},
         }),
     });
+    // Android requires position-independent executables (static PIE).
+    if (b.option(bool, "pie", "Build a position-independent executable (Android)")) |pie| exe.pie = pie;
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

@@ -20,23 +20,26 @@ import zipfile
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 
-# (asset name, zig target, zig cpu)
+# (asset name, zig target, zig cpu, extra build options)
 TARGETS = [
-    ('windows-x86_64', 'x86_64-windows', 'baseline'),
-    ('windows-arm64', 'aarch64-windows', 'baseline'),
-    ('linux-x86_64', 'x86_64-linux-musl', 'baseline'),
-    ('linux-arm64', 'aarch64-linux-musl', 'baseline'),
+    ('windows-x86_64', 'x86_64-windows', 'baseline', []),
+    ('windows-arm64', 'aarch64-windows', 'baseline', []),
+    ('linux-x86_64', 'x86_64-linux-musl', 'baseline', []),
+    ('linux-arm64', 'aarch64-linux-musl', 'baseline', []),
     # 32-bit Raspberry Pi OS and other ARMv6/v7 hard-float boards
-    ('linux-armv6hf', 'arm-linux-musleabihf', 'arm1176jzf_s'),
-    ('macos-x86_64', 'x86_64-macos', 'baseline'),
-    ('macos-arm64', 'aarch64-macos', 'baseline'),
+    ('linux-armv6hf', 'arm-linux-musleabihf', 'arm1176jzf_s', []),
+    ('macos-x86_64', 'x86_64-macos', 'baseline', []),
+    ('macos-arm64', 'aarch64-macos', 'baseline', []),
+    # Android chess apps (DroidFish, Chess for Android) run UCI engines as
+    # executables; Android requires position-independent ones (static PIE).
+    ('android-arm64', 'aarch64-linux-android', 'baseline', ['-Dpie=true']),
 ]
 
 EXTRAS = ['README.md', 'LICENSE']
 
 
-def build(target, cpu, prefix):
-    cmd = ['zig', 'build', '-Doptimize=ReleaseFast', '-Dstrip=true', f'-Dtarget={target}', f'-Dcpu={cpu}', '-p', prefix]
+def build(target, cpu, extra, prefix):
+    cmd = ['zig', 'build', '-Doptimize=ReleaseFast', '-Dstrip=true', f'-Dtarget={target}', f'-Dcpu={cpu}', *extra, '-p', prefix]
     print(' '.join(cmd), flush=True)
     subprocess.run(cmd, cwd=ROOT, check=True)
 
@@ -45,7 +48,7 @@ def package(version, asset, exe_path, dist):
     base = f'cyrus-is-chess-{version}-{asset}'
     windows = asset.startswith('windows')
     exe_name = 'cyrus.exe' if windows else 'cyrus'
-    if windows:
+    if windows or asset.startswith('android'):  # zip: easiest to open on a phone too
         out = os.path.join(dist, base + '.zip')
         with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
             z.write(exe_path, f'{base}/{exe_name}')
@@ -75,9 +78,9 @@ def main():
     shutil.rmtree(dist, ignore_errors=True)
     os.makedirs(dist)
     archives = []
-    for asset, target, cpu in TARGETS:
+    for asset, target, cpu, extra in TARGETS:
         prefix = os.path.join(dist, 'build', asset)
-        build(target, cpu, prefix)
+        build(target, cpu, extra, prefix)
         exe = os.path.join(prefix, 'bin', 'cyrus.exe' if asset.startswith('windows') else 'cyrus')
         archives.append(package(version, asset, exe, dist))
     with open(os.path.join(dist, 'SHA256SUMS.txt'), 'w', newline='\n') as f:
