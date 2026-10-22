@@ -1,0 +1,40 @@
+MIT License
+
+Copyright (c) 2026 Steve Maughan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+Scope
+
+This license covers the port: the Zig source, the build files, the tools and
+the documentation written for this project.
+
+It does not cover the original program or its materials, which remain the
+property of their copyright holders:
+
+- Cyrus IS Chess for the ZX Spectrum (c) 1983 Richard Lang / Intelligent
+  Software, published by Sinclair Research: the tape images, extracted code
+  blocks and snapshots under reference/, and the manual under docs/manual/.
+- The ZX Spectrum 48K ROM (reference/original/48.rom) (c) Amstrad plc, which
+  permits its distribution for use with emulators.
+
+They are included, unmodified, as the reference against which the port is
+verified. The Cyrus binary embedded in the engine's build (its tables and
+opening book) is likewise not covered by this license.
