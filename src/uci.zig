@@ -40,6 +40,14 @@ const Search = struct {
         return s.thread != null;
     }
 
+    /// Before a command that changes the engine's state: wait for a running
+    /// search to finish, as only `stop` and `quit` may end a search early.
+    /// A search that never ends by itself (`infinite`, `ponder`) is stopped,
+    /// since a GUI sending other commands then has abandoned it.
+    fn settle(s: *Search, gpa: std.mem.Allocator) void {
+        s.finish(gpa, s.go.infinite or s.go.ponder);
+    }
+
     /// Stop the search (if any) and wait for it; `bestmove` has then been printed.
     fn finish(s: *Search, gpa: std.mem.Allocator, stop: bool) void {
         if (s.thread) |t| {
@@ -85,19 +93,19 @@ pub fn run(gpa: std.mem.Allocator, io: std.Io) !void {
             .ponderhit => if (search.running()) search.sig.ponderhit.store(true, .release),
             .quit => break,
             .setoption => |o| {
-                search.finish(gpa, true);
+                search.settle(gpa);
                 e.setOption(o);
             },
             .ucinewgame => {
-                search.finish(gpa, true);
+                search.settle(gpa);
                 try e.newGame();
             },
             .position => |p| {
-                search.finish(gpa, true);
+                search.settle(gpa);
                 try e.position(p);
             },
             .go => |g| {
-                search.finish(gpa, true);
+                search.settle(gpa);
                 search.sig = .{};
                 search.go = g;
                 if (g.searchmoves) |m| {
