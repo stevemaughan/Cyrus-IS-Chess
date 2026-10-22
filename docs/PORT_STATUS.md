@@ -12,7 +12,7 @@ One row per port unit, in Phase 3 order (AGENTS.md §6).
 | Step | Unit | Original routines | Spec | Model | Zig | Oracle |
 |---|---|---|---|---|---|---|
 | 3.1 | Tables: direction tables, book data | `$7800–$780F`, `$9000–$9BCC` | 20, 25 | n/a | – | – |
-| 3.2 | Memory image, new game, set-up / slot assignment, FEN loading | `$6505` InitBoard, `$658E–$6690` set-up/AssignScan, `$6F99`, `$660A`/`$8203` | 10 §6.3, 20 | – | – | – |
+| 3.2 | State structures, new game, set-up / slot assignment, FEN loading | `$6505` InitBoard, `$658E–$6690` set-up/AssignScan, `$6F99`, `$660A`/`$8203` | 10 §6.3, 20 | – | – | – |
 | 3.3 | Make / unmake | `$810F`, `$821C`, `$8200`, `$826E` | 20 §4.3–4.5 | `movegen/makeunmake.py` (checks) | – | – |
 | 3.4 | Move generator | `$78CE`–`$7AC6` | 20 §4.2 | `movegen/compare.py` | – | – |
 | 3.5 | Pre-search set-up | `$7810`, `$789D` | 20 §4.1 | – | – | – |

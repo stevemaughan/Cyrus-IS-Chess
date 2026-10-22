@@ -32,7 +32,7 @@ The port also has an **extended mode** that lets this search run deeper with ite
    - A mate is `$FF` (mating side) or 1 (mated side), with no distance; the shortest mate is chosen separately.
    - Draws score `$78`/`$7E` ± the material term.
 4. **The evaluation is noisy.** [V] Every evaluation increments `$BCCE` and adds its low bit (two bits on move 1). `$BCCE` is also stirred by the `R` register and by key-wait time. In the original it is effectively a random seed, carried from move to move.
-5. **Behaviour depends on memory layout, not just the position.** [V] A port must therefore reproduce the original's memory layout:
+5. **Behaviour depends on memory side effects, not just the position.** [V] The port reproduces these *effects*; it does not preserve the layout (AGENTS.md §6 Phase 3, decision 8):
    - move generation order = piece-slot order;
    - the search reads stale per-ply slots and compares list *addresses*;
    - the evaluation and move generator read variables stored in the board's off-board columns as if they were squares;

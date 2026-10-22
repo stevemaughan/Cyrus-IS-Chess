@@ -57,11 +57,11 @@ Every behavioural difference between the Zig port and the original 48K Cyrus IS 
 - **Change:** in `Level = UCI`, a pass loop repeats that mechanism at D = 4, 5, 6, … up to `MAX_DEPTH` = 60. Pass 1 is the original Level-2 pass; the switches come from the `Profile` level. Specification: `docs/EXTENDED_SEARCH.md` §3.
 - **Behaviour where the original worked:** identical at the anchors (`go depth 1/2/4` = Levels 1/2/6–8). Original mode is unchanged.
 
-## DEV-009: Relocated per-ply storage
+## DEV-009: Capacities in extended mode
 - **Class:** E. **Status:** planned.
-- **Original:** the value, killer, current-move and slot tables (`$BC83–$BCB9`), the move-list area (`$B400–$BC7F`) and the undo stack (`$BD80–$BDF4`) are sized for ply ≤ 7.
-- **Change:** ply-indexed arrays sized `MAX_DEPTH+4`; move lists use 32-bit virtual addresses (identical to the original below `$BC80`, then continuing at `$10000`); list-pointer variables are 32-bit; a separate undo stack. Specification: `docs/EXTENDED_SEARCH.md` §2.
-- **Behaviour where the original worked:** identical, because every address comparison gives the same answer below `$BC80`.
+- **Original:** the per-ply tables, the move-list area (544 entries; when full, the search aborts as if a key were pressed) and the undo stack are sized for ply ≤ 7.
+- **Change:** original mode keeps the 544-entry limit and its abort. Extended mode uses per-ply arrays sized `MAX_DEPTH+4` and a 32,768-entry list area. The address-based list-size tests become offset tests (`docs/EXTENDED_SEARCH.md` §2).
+- **Behaviour where the original worked:** none. The offset tests are exactly the original tests, and the larger capacity only matters where the original would have aborted.
 
 ## DEV-010: Time management
 - **Class:** E. **Status:** planned.
@@ -73,4 +73,4 @@ Every behavioural difference between the Zig port and the original 48K Cyrus IS 
   - a reporting-only triangular PV table, updated where the original raises alpha and never read by the search;
   - `bestmove … ponder …`;
   - `go ponder` / `ponderhit`;
-  - memory-image checkpoints per game ply, so a diverging `position` (ponder miss, takeback) restores state exactly (AGENTS.md §9.6).
+  - engine-state checkpoints per game ply, so a diverging `position` (ponder miss, takeback) restores state exactly (AGENTS.md §9.6).

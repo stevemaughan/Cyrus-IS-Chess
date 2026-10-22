@@ -8,29 +8,28 @@ This document specifies the generalisation precisely. It builds on [arch/30-sear
 
 | Mode | `Level` option | Behaviour | Verified against |
 |---|---|---|---|
-| **Original** | `Level 1` … `Level 8`, `Level P1` … `P3` | Exactly the original: fixed passes, original switches, clock ignored, `stop` = key press | Oracle golden files, byte for byte |
+| **Original** | `Level 1` … `Level 8`, `Level P1` … `P3` | Exactly the original: fixed passes, original switches, original capacities, clock ignored, `stop` = key press | Oracle golden files (identical make sequences and results) |
 | **Extended** | `UCI` (default) | Iterative deepening over the original's own pass mechanism, any depth up to `MAX_DEPTH`, with time management | Oracle golden files at the anchor depths (§3); self-consistency and robustness beyond them |
 
 Both modes run **the same ported code**. Original mode is extended mode with the original's pass schedule and capacities. Any difference between the two outside §2 is a bug.
 
 ## 2. What generalises, and how
 
-The original never exceeds ply 7, so several structures are sized for it. Each is generalised so that it **behaves identically whenever the original's limits are not exceeded**.
+The port does not preserve the memory layout (AGENTS.md §13, decision 8). It uses its own data structures and reproduces only the *behaviour*. The original's limits that tie behaviour to ply ≤ 7 are generalised as follows. Each generalisation **behaves identically whenever the original's limits are not exceeded**.
 
 | Original | Limit | Generalisation |
 |---|---|---|
 | Full-width depth D from the level parameter: `a==0 ? 1 : a<4 ? 2 : a==4 ? 3 : 4` (`$7C71`) | D ≤ 4 | D is set per pass by the driver (§3). The *switches* still come from a level parameter `a` (§3) |
 | Maximum ply D+3 (selective extensions stop at D+2, rarely D+3) | 7 | Unchanged rule relative to D. `MAX_DEPTH` = 60, so the maximum ply is 63 |
-| Value table V(q) at `$BC9F+q`; killers at `$BC91+2(q−1)` (reset per pass); current move at `$BC83+2(q−1)`; slot table at `$BCA9+2q` | q ≤ 8; beyond that the tables overlap each other and `$BCBD` | Separate arrays indexed by ply, sized `MAX_DEPTH+4`. The killer reset at the start of a pass clears all plies. Golden-file comparisons map plies ≤ 7 back onto the original addresses |
-| Move-list area `$B400–$BC7F`; overflow sets the abort flag (`$7AAF`) | 544 entries | List storage addressed by **32-bit virtual addresses**: identical to the original from `$B400` to `$BC7F`, then continuing at `$10000`. This skips `$BC80–$FFFF`, so list addresses can never collide with workspace objects such as the root record `$BD58`, which is also used as a move pointer. The array behind it holds 8,192 entries. The overflow guard moves to the new end and still aborts |
-| Pointer variables that can hold list addresses: slots, `$BD1A` (best static move at any ply), header and entry pointers, the per-ply current move | 16-bit | Held as 32-bit values in the port. When a value is below `$10000`, the image bytes hold the same 16 bits as the original, for golden comparisons. Phase 3 must confirm, per variable, that no original code reads these bytes as anything but the pointer (e.g. as an off-board square) |
-| List-address tests: high byte of slot(4) `== $B4` (`L7F20`), high byte of slot(6) `== $B4` (`L7EB6`), low byte of slot(5) `≥ $58` | — | Defined on the full value: "in page `$B4`" means `slot >> 8 == $B4`, and the low-byte test keeps the low byte. Slots 4–6 belong to plies 4–6, which always lie below `$BC80` when slot(4) is in page `$B4`, so the answers are identical to the original |
-| Selective-node marker `$BD4E = $A9+2p` (8-bit) | p ≤ 7 | Unchanged formula. It wraps mod 256, but is odd and therefore never 0 for any p, so it is still non-zero as the search requires |
+| Per-ply tables: values V(q), killers (reset per pass), current move, list start | q ≤ 8 | Arrays indexed by ply, sized `MAX_DEPTH+4`. The killer reset clears all plies. List starts for deeper plies persist between lines and searches, because the original reads them stale (`L7F20`, `L7EB6`) |
+| Move-list storage `$B400–$BC7F`; a full area sets the abort flag (`$7AAF`) | 544 entries (2,176 bytes) | Lists are stored contiguously in the original format (4-byte header, then 4-byte entries) and measured in byte offsets from the root list. **Original mode** keeps the 2,176-byte capacity and its abort. **Extended mode** allows 32,768 entries, with the same abort at that limit |
+| List-size tests on addresses: high byte of slot(4) `== $B4` (`L7F20`), high byte of slot(6) `== $B4` (`L7EB6`), low byte of slot(5) `≥ $58` | — | Use offsets: `offset(slot4) < 256`, `offset(slot6) < 256`, `offset(slot5) mod 256 ≥ $58`. The root list starts at `$B400`, whose low byte is 0, so these are exactly the original tests. That includes the mod-256 quirk of the third |
+| Selective-node marker `$BD4E = $A9+2p` (8-bit), later overwritten by the evaluation | p ≤ 7 | Same formula, same last-writer-wins. It wraps mod 256, but is odd and so never 0 for any p, so it is still non-zero as the search requires |
 | Header count byte (DEV-001) | n ≤ 126 | DEV-001 fix (the true count) |
-| Undo data pushed on the Z80 stack (`SP` ≥ `$BD80`, below which it would hit the board) | ~ply 20 | A separate undo stack, sized for `MAX_DEPTH+4`. Nothing else reads the original stack area |
-| `$BD0B` / `$BD0C` mate plies, `$BCA9` ply, `$BCAA` depth | 8-bit | Unchanged; values stay < 64 |
+| Undo data on the Z80 stack | ~ply 20 before it would hit the board | An undo stack sized for `MAX_DEPTH+4` |
+| Mate plies `$BD0B`/`$BD0C`, ply `$BCA9`, depth `$BCAA` | 8-bit | Unchanged; values stay < 64 |
 
-Everything else is unchanged and lives at its original address in the memory image: the board with its off-board variables, the piece records, the evaluation's working storage, phase bits, `$BD0D`, `$BCCE`, `$BCA0`, the book state and the game record.
+The other decision-relevant behaviour is reproduced as listed in AGENTS.md §6 Phase 3: off-board-column reads, slot order, persistent variables and the game record.
 
 ## 3. Iterative deepening = the original's pass mechanism, repeated
 
@@ -113,6 +112,6 @@ Several parameters combine; the first limit reached stops the search.
    - for every golden search position, extended mode with `go depth 2` = original Level 2;
    - with `go depth 4` and profile Level 6/7/8 = original Level 6/7/8 (make sequence, `$BD29`, `$BCA0`, counts);
    - `go depth 1` = Level 1.
-2. **Original mode** stays byte-exact (Phase 3 golden tests).
+2. **Original mode** keeps matching the oracle exactly (Phase 3 golden tests: make sequences, moves, values).
 3. **Deep searches** (D up to 20+, long `go infinite`): no safety panics, no list overflow aborts in normal positions, legal output, and monotone pass completion.
-4. **Generalisation unit tests:** with D ≤ 4, the relocated tables and virtual-address lists produce the same make sequences as the original-address layout.
+4. **Generalisation unit tests:** with D ≤ 4, extended-mode structures (larger capacity) produce the same make sequences as original mode.
