@@ -8,6 +8,8 @@ pub const movegen = @import("movegen.zig");
 pub const eval = @import("eval.zig");
 pub const book = @import("book.zig");
 pub const presearch = @import("presearch.zig");
+pub const observer = @import("observer.zig");
+pub const scoring = @import("scoring.zig");
 pub const search = @import("search.zig");
 pub const game = @import("game.zig");
 
@@ -19,6 +21,8 @@ test {
     _ = eval;
     _ = book;
     _ = presearch;
+    _ = observer;
+    _ = scoring;
     _ = search;
     _ = game;
     _ = @import("golden.zig");
