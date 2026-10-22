@@ -12,6 +12,8 @@ pub const observer = @import("observer.zig");
 pub const scoring = @import("scoring.zig");
 pub const search = @import("search.zig");
 pub const game = @import("game.zig");
+pub const timeman = @import("timeman.zig");
+pub const uci_parse = @import("uci_parse.zig");
 
 test {
     _ = state;
@@ -25,5 +27,7 @@ test {
     _ = scoring;
     _ = search;
     _ = game;
+    _ = timeman;
+    _ = uci_parse;
     _ = @import("golden.zig");
 }
