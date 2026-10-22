@@ -26,12 +26,15 @@ pub fn build(b: *std.Build) void {
     });
     mod.addOptions("build_options", options);
 
+    // Release builds (tools/scripts/build_release.py) strip debug info.
+    const strip = b.option(bool, "strip", "Strip debug information from the executable");
     const exe = b.addExecutable(.{
         .name = "cyrus",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
+            .strip = strip,
             .imports = &.{.{ .name = "cyrus", .module = mod }},
         }),
     });

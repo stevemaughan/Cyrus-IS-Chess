@@ -11,6 +11,8 @@ tests/golden/*.jsonl
 tools/research/*/work/
 # fastchess runs (tools/scripts/fastchess.bat)
 fastchess-out/
+# release archives (tools/scripts/build_release.py)
+dist/
 *.log
 
 # --- Python

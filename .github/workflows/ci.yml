@@ -1,0 +1,44 @@
+name: CI
+
+# Every push: the unit and golden tests (every comparison with the original),
+# the release checks and the UCI smoke test, natively on Linux, macOS and
+# Windows.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: python-chess (for the UCI smoke test)
+        run: python -m pip install chess
+
+      - name: Unit and golden tests
+        run: zig build test -Doptimize=ReleaseSafe
+
+      - name: Reference checksums and UNVERIFIED tags
+        run: zig build check-unverified
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: UCI smoke test
+        shell: bash
+        run: python tools/scripts/uci_smoke.py zig-out/bin/cyrus$([ "$RUNNER_OS" = Windows ] && echo .exe)

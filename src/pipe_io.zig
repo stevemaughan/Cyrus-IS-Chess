@@ -99,12 +99,15 @@ pub const Stdin = struct {
     }
 
     fn stream(r: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
-        const s: *Stdin = @alignCast(@fieldParentPtr("pipe_reader", r));
-        const dest = limit.slice(try w.writableSliceGreedy(1));
-        const n = try s.pipe.?.read(dest);
-        if (n == 0) return error.EndOfStream;
-        w.advance(n);
-        return n;
+        // Only Windows pipes use this reader; elsewhere `pipe` is void.
+        if (is_windows) {
+            const s: *Stdin = @alignCast(@fieldParentPtr("pipe_reader", r));
+            const dest = limit.slice(try w.writableSliceGreedy(1));
+            const n = try s.pipe.?.read(dest);
+            if (n == 0) return error.EndOfStream;
+            w.advance(n);
+            return n;
+        } else unreachable;
     }
 };
 
