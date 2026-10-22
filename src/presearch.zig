@@ -101,8 +101,8 @@ test "pre-search matches the original (tests/golden/presearch.jsonl.gz)" {
         const r = preSearch(s);
         const out = rec.get("out").?.object;
         const want = [_]i64{
-            try golden.int(out, "A"),    try golden.int(out, "B"),    try golden.int(out, "BD1E"),
-            try golden.int(out, "BD2E"), try golden.int(out, "BD4A"), try golden.int(out, "BD6D"),
+            try golden.int(out, "A"),    try golden.int(out, "B"),          try golden.int(out, "BD1E"),
+            try golden.int(out, "BD2E"), try golden.int(out, "BD4A"),       try golden.int(out, "BD6D"),
             try golden.int(out, "BD2D"), try golden.int(out, "root_flags"), try golden.int(out, "BCCE"),
         };
         // On return the original's B register holds the phase bits ($7875-$788F).

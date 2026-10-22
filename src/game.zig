@@ -92,8 +92,8 @@ fn whiteToMove(s: *const State) bool {
 /// swap sides ($614B -> $696A) and CYRUS v CYRUS human turns too ($61E6).
 pub fn mainLoop(s: *State) Turn {
     while (true) {
-        // $60F6: draw tests.
-        if (s.reversals == 6 or s.fifty >= 100) return .draw;
+        // $60F6: draw tests (skipped by the UCI engine: DEV-012).
+        if (!s.ignore_draw_rules and (s.reversals == 6 or s.fifty >= 100)) return .draw;
         s.game_over = 0; // $6106
         // $611F: next-best in progress: Cyrus plays the side to move now.
         if (s.next_best != 0) {
@@ -552,13 +552,20 @@ pub const MoveError = error{
     /// The move is not in the generated list, or its static score is 0
     /// ($6318: ILLEGAL).
     IllegalMove,
+    /// The 16-bit ply counter ($C001) would wrap (DEV-014).
+    GameTooLong,
 };
+
+/// The most plies a game may reach: the original's 16-bit counter wraps
+/// after $FFFF, so a longer game is one it cannot hold (DEV-014: rejected).
+pub const max_plies: u16 = 0xFFFF;
 
 /// The human's move at the YOUR MOVE? prompt: HumanMoveInput ($62B7-$6321)
 /// looks the move up in the root list (it must be there with a non-zero
 /// score), starts a new exclusion list and plays it (PlayMove), then the main
 /// loop continues. The root list must be the one `mainLoop` generated.
 pub fn humanMove(s: *State, m: Move) MoveError!Turn {
+    if (s.plies >= max_plies) return error.GameTooLong;
     const count = s.lists[1]; // $6309: B = ($B401)
     const e = scoring.findMove(s, st.list_base + 2, count, m.from, m.to, null) orelse return error.IllegalMove;
     if (s.entry(e)[0] == 0) return error.IllegalMove;

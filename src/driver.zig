@@ -27,7 +27,7 @@ pub const Profile = enum(u8) {
     level8 = 7,
 
     pub fn a(p: Profile) u8 {
-        return @intFromEnum(p);
+        return @backingInt(p);
     }
 };
 

@@ -7,13 +7,13 @@ const std = @import("std");
 const engine_mod = @import("engine.zig");
 const Engine = engine_mod.Engine;
 const uci_parse = @import("uci_parse.zig");
+const pipe_io = @import("pipe_io.zig");
 
 /// Standard output shared by both threads: one line at a time, flushed.
 const StdOut = struct {
     io: std.Io,
     mutex: std.Io.Mutex = .init,
-    buf: [16384]u8 = undefined,
-    writer: std.Io.File.Writer = undefined,
+    stdout: pipe_io.Stdout = undefined,
 
     fn output(o: *StdOut) engine_mod.Output {
         return .{ .ctx = o, .lineFn = lineFn };
@@ -23,10 +23,7 @@ const StdOut = struct {
         const o: *StdOut = @ptrCast(@alignCast(ctx.?));
         o.mutex.lockUncancelable(o.io);
         defer o.mutex.unlock(o.io);
-        const w = &o.writer.interface;
-        w.writeAll(text) catch return;
-        w.writeByte('\n') catch return;
-        w.flush() catch return;
+        o.stdout.line(text) catch return;
     }
 };
 
@@ -66,19 +63,23 @@ fn searchMain(e: *Engine, g: uci_parse.Go, sig: *engine_mod.Signals) void {
 
 pub fn run(gpa: std.mem.Allocator, io: std.Io) !void {
     var out: StdOut = .{ .io = io };
-    out.writer = .init(.stdout(), io, &out.buf);
+    out.stdout.init(io);
     const e = try Engine.init(gpa, io, out.output());
     defer e.deinit();
     var search: Search = .{};
     defer search.finish(gpa, true);
 
     var in_buf: [64 * 1024]u8 = undefined;
-    var reader = std.Io.File.stdin().reader(io, &in_buf);
+    // Overlapped pipes (fastchess on Windows) need pipe_io: std's reader
+    // panicked at the first read that had to wait.
+    var stdin: pipe_io.Stdin = undefined;
+    stdin.init(io, &in_buf);
+    const reader = stdin.reader();
     while (true) {
-        const raw = reader.interface.takeDelimiter('\n') catch |err| switch (err) {
+        const raw = reader.takeDelimiter('\n') catch |err| switch (err) {
             error.StreamTooLong => {
                 // takeDelimiter leaves an over-long line unread: skip it.
-                _ = reader.interface.discardDelimiterInclusive('\n') catch break;
+                _ = reader.discardDelimiterInclusive('\n') catch break;
                 out.output().line("info string error: input line too long, ignored");
                 continue;
             },

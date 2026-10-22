@@ -205,6 +205,12 @@ pub const State = struct {
     /// terminated by $FF.
     record: [record_capacity]u8 = @splat(0xFF),
 
+    // ----------------------------------------------------- port options
+    /// Not an original variable. DEV-012: the UCI engine leaves draw claims to
+    /// the GUI, so the main loop does not declare DRAWN (repetition count 6,
+    /// 50-move rule) and play continues. False reproduces the original (golden tests).
+    ignore_draw_rules: bool = false,
+
     /// $BF00...: next-best root exclusion list, (from, to) pairs; `exclusion_len` bytes.
     exclusion: [exclusion_capacity]u8 = @splat(0),
     exclusion_len: u32 = 0,

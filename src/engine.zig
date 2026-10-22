@@ -172,7 +172,7 @@ pub const Engine = struct {
         const e = try gpa.create(Engine);
         errdefer gpa.destroy(e);
         const s = try gpa.create(State);
-        s.* = .{};
+        s.* = .{ .ignore_draw_rules = true }; // DEV-012
         const scratch = try gpa.create(State);
         e.* = .{ .gpa = gpa, .io = io, .out = out, .s = s, .scratch = scratch, .session = .{ .s = s }, .rng = Rng.init(clockSeed(io)) };
         e.session.turn = game.coldStart(s);
@@ -368,6 +368,7 @@ pub const Engine = struct {
         e.valid = false;
         e.reject("{s}", .{switch (err) {
             error.IllegalMove => "a move is illegal for the original",
+            error.GameTooLong => "the game is too long for the original's ply counter",
             error.GameOver => "the original's game is over (mate, stalemate or its draw rules) before the last move",
             else => @errorName(err),
         }});
@@ -402,6 +403,12 @@ pub const Engine = struct {
         // Bring the program to ComputerMove ($6147) by the operator script.
         if (e.opts.level) |lv| game.setLevel(s, lv);
         var turn = e.session.turn;
+        // DEV-014: the pending move and the engine's own must fit the counter.
+        const to_play: u16 = if (e.session.pending != null) 2 else 1;
+        if (s.plies > game.max_plies - to_play) {
+            e.valid = false;
+            return e.finishNoMove(g, sig, "error: position rejected: the game is too long for the original's ply counter");
+        }
         if (e.session.pending) |m| {
             e.session.pending = null;
             e.session.turn = game.humanMove(s, m) catch {
@@ -489,7 +496,8 @@ pub const Engine = struct {
                 const best: info_mod.Move = .{ .from = mv[1] & 0x7F, .to = mv[2], .promo = info_mod.isPromotion(s, mv[1] & 0x7F, mv[2]) };
                 var b1: [5]u8 = undefined;
                 var b2: [5]u8 = undefined;
-                const ponder_move: ?info_mod.Move = if (ctl.legalPvLen() >= 2 and info.best[0].from == best.from and info.best[0].to == best.to) info.best[1] else null;
+                var pv: [st.ply_slots]info_mod.Move = undefined;
+                const ponder_move: ?info_mod.Move = if (ctl.legalPv(&pv) >= 2 and pv[0].from == best.from and pv[0].to == best.to) pv[1] else null;
                 ctl.finalInfo();
                 if (ponder_move) |pm| {
                     e.out.print("bestmove {s} ponder {s}", .{ best.uci(&b1), pm.uci(&b2) });
@@ -628,7 +636,9 @@ const Control = struct {
         c.node_entries += 1;
         if (c.sig.stop.load(.monotonic)) return true;
         if (c.nodes_limit) |n| if (c.info.nodes >= n) return true;
-        if (c.node_entries & 1023 == 0) {
+        // The clock every 64 node entries (well under a millisecond), and at
+        // the first, so that a nearly flagged engine moves at once.
+        if (c.node_entries & 63 == 1) {
             c.checkPonderhit();
             const t = c.elapsed();
             if (!c.pondering and !c.infinite) {
@@ -672,18 +682,25 @@ const Control = struct {
         try info.writeScore(w);
         try w.print(" nodes {d} nps {d} time {d} pv", .{ info.nodes, nps, t });
         var b: [5]u8 = undefined;
-        for (info.best[0..c.legalPvLen()]) |m| try w.print(" {s}", .{m.uci(&b)});
+        var pv: [st.ply_slots]info_mod.Move = undefined;
+        for (pv[0..c.legalPv(&pv)]) |m| try w.print(" {s}", .{m.uci(&b)});
         c.printed_nodes = info.nodes;
     }
 
     /// The reported PV, truncated at its first illegal move (AGENTS.md §8.2):
     /// the original's selective plies count illegal replies in check as a
-    /// value, so its best line can contain them. Called at the root only.
-    fn legalPvLen(c: *Control) usize {
+    /// value, so its best line can contain them. Promotions are judged while
+    /// replaying the line (a pawn moving to the last rank); the search can
+    /// only guess them from the board after the move, where an earlier
+    /// promoted queen looks the same. Called at the root only.
+    fn legalPv(c: *Control, out: *[st.ply_slots]info_mod.Move) usize {
         const info = c.info;
         var line: [st.ply_slots]legal.Move = undefined;
+        var promos: [st.ply_slots]bool = undefined;
         for (info.best[0..info.best_len], 0..) |m, k| line[k] = .{ .from = m.from, .to = m.to };
-        return legal.legalPrefix(c.e.s, c.e.scratch, line[0..info.best_len]);
+        const n = legal.legalPrefix(c.e.s, c.e.scratch, line[0..info.best_len], promos[0..info.best_len]);
+        for (0..n) |k| out[k] = .{ .from = line[k].from, .to = line[k].to, .promo = promos[k] };
+        return n;
     }
 
     fn reportNewBest(ctx: ?*anyopaque, info: *const Info) void {
@@ -896,6 +913,14 @@ test "rejected positions and no-move positions" {
     out.clear();
     try run(e, &sig, "position startpos moves e2e5");
     try std.testing.expect(out.has("info string error: position rejected"));
+    // DEV-014: a game about to wrap the 16-bit ply counter
+    out.clear();
+    try run(e, &sig, "position startpos moves e2e4");
+    e.s.plies = game.max_plies;
+    try run(e, &sig, "go depth 2");
+    try std.testing.expect(out.has("info string error: position rejected"));
+    try std.testing.expectEqualStrings("0000", bestmove(&out));
+    try std.testing.expectError(error.GameTooLong, game.humanMove(e.s, try game.Move.parse("e7e5")));
 }
 
 test "original levels, problem levels, nodes limit, searchmoves, mate" {

@@ -33,7 +33,10 @@ pub const Move = struct {
 
 /// Whether the move (from, to) is a pawn promotion, judged from the board
 /// either before the move (the pawn on `from`) or after it (the promoted
-/// queen, type $19, in a pawn slot on `to`).
+/// queen, type $19, in a pawn slot on `to`). After the move this is a guess:
+/// a queen promoted earlier, moving from the 2nd/7th rank to the last, looks
+/// the same. Exact where the board is before the move; the reported PV is
+/// judged again by `legal.legalPrefix`.
 pub fn isPromotion(s: *const State, from: u8, to: u8) bool {
     if (from & 0x88 != 0 or to & 0x88 != 0) return false;
     const to_row = to >> 4;
@@ -89,6 +92,9 @@ pub const Info = struct {
     /// Depth of the last completed pass (0 = none yet).
     completed_depth: u8 = 0,
     book_move: ?Move = null,
+    /// The squares holding a pawn in the root position, so that root moves
+    /// (made, or judged after the search) are known exactly as promotions.
+    root_pawn: [128]bool = @splat(false),
 
     // --------------------------------------------------- triangular PV table
     pv: [max_line][max_line]Move = undefined,
@@ -153,7 +159,18 @@ pub const Info = struct {
     }
 
     fn onRootScored(ctx: ?*anyopaque, s: *const State, h: u32, c: u8) void {
-        if (get(ctx).next) |n| n.rootScored(s, h, c);
+        const self = get(ctx);
+        for (&self.root_pawn, 0..) |*p, sq| {
+            const code = s.board[sq];
+            p.* = sq & 0x88 == 0 and code != 0 and s.rec[(code & 0xFB) +% 1] & 0x0F == 1;
+        }
+        if (self.next) |n| n.rootScored(s, h, c);
+    }
+
+    /// A root move: a promotion if a root pawn moves to the last rank.
+    fn rootMove(self: *const Info, from: u8, to: u8) Move {
+        const promo = from & 0x88 == 0 and self.root_pawn[from] and (to >> 4 == 0 or to >> 4 == 7);
+        return .{ .from = from, .to = to, .promo = promo };
     }
 
     fn onPassStart(ctx: ?*anyopaque, s: *const State, depth: u8, a: u8) void {
@@ -172,7 +189,7 @@ pub const Info = struct {
     fn onRootMove(ctx: ?*anyopaque, s: *const State, entry: u32) void {
         const self = get(ctx);
         const e = @constCast(s).entry(entry);
-        self.currmove = .{ .from = e[1] & 0x7F, .to = e[2], .promo = isPromotion(s, e[1] & 0x7F, e[2]) };
+        self.currmove = self.rootMove(e[1] & 0x7F, e[2]);
         self.currmovenumber += 1;
         if (self.reporter.rootMove) |f| f(self.reporter.ctx, self);
         if (self.next) |n| n.rootMove(s, entry);
@@ -195,7 +212,7 @@ pub const Info = struct {
     fn onNewBest(ctx: ?*anyopaque, s: *const State, entry: u32) void {
         const self = get(ctx);
         const e = @constCast(s).entry(entry);
-        const m: Move = .{ .from = e[1] & 0x7F, .to = e[2], .promo = isPromotion(s, e[1] & 0x7F, e[2]) };
+        const m = self.rootMove(e[1] & 0x7F, e[2]);
         if (self.alpha1) |a| {
             if (a.from == m.from and a.to == m.to) {
                 @memcpy(self.best[0..self.pv_len[1]], self.pv[1][0..self.pv_len[1]]);

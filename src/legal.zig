@@ -229,13 +229,16 @@ pub fn legalMoves(s: *const State, out: []Move) usize {
 /// Truncate a reported line at its first illegal move (AGENTS.md §8.2 point
 /// 4). `scratch` receives a copy of `root` and is used to play the moves;
 /// the engine state is not touched. Returns the legal prefix length.
-pub fn legalPrefix(root: *const State, scratch: *State, line: []const Move) usize {
+/// `promos`, if given, receives for each legal move whether it promotes a
+/// pawn, judged on the board before the move.
+pub fn legalPrefix(root: *const State, scratch: *State, line: []const Move, promos: ?[]bool) usize {
     const board = @import("board.zig");
     scratch.* = root.*;
     for (line, 0..) |m, k| {
         if (!isLegal(scratch, m.from, m.to)) return k;
         const mover = scratch.board[m.from];
         const kind = kindOf(scratch, mover);
+        if (promos) |p| p[k] = kind == .pawn and (m.to >> 4 == 0 or m.to >> 4 == 7);
         var flags: u8 = 0;
         if (scratch.board[m.to] != 0) flags |= 0x08;
         if (kind == .king and (m.to -% m.from == 2 or m.from -% m.to == 2)) flags = 0x10;
@@ -336,4 +339,28 @@ test "hand positions" {
     _ = try game.loadFen(s, "8/8/8/KPp4r/8/8/8/6k1 w - c6 0 1");
     try std.testing.expect(!isLegal(s, 0x31, 0x22));
     try std.testing.expect(isLegal(s, 0x31, 0x21));
+}
+
+test "legalPrefix: promotions are judged before the move" {
+    // h2h1=Q, then the promoted queen (a pawn-slot queen, type $19) goes
+    // h1-h2-g1: its move from the 2nd rank to the 1st is not a promotion.
+    // fastchess flagged the PV "... a2b1q" for such a move.
+    const game = @import("game.zig");
+    const gpa = std.testing.allocator;
+    const s = try gpa.create(State);
+    defer gpa.destroy(s);
+    const scratch = try gpa.create(State);
+    defer gpa.destroy(scratch);
+    s.* = .{};
+    _ = try game.loadFen(s, "k7/8/8/8/8/8/7p/K7 b - - 0 1");
+    const line = [_]Move{
+        .{ .from = 0x67, .to = 0x77 }, // h2h1=Q
+        .{ .from = 0x70, .to = 0x61 }, // Ka1-b2
+        .{ .from = 0x77, .to = 0x67 }, // Qh1-h2+
+        .{ .from = 0x61, .to = 0x51 }, // Kb2-b3
+        .{ .from = 0x67, .to = 0x76 }, // Qh2-g1
+    };
+    var promos: [line.len]bool = undefined;
+    try std.testing.expectEqual(line.len, legalPrefix(s, scratch, &line, &promos));
+    try std.testing.expectEqualSlices(bool, &.{ true, false, false, false, false }, &promos);
 }

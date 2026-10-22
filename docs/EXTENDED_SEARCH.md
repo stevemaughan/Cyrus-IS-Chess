@@ -70,12 +70,13 @@ else:
     t = our clock, inc = our increment, mtg = movestogo or 30
     soft = t / mtg + 0.75·inc
     hard = min(5·soft, t/3) − overhead            # overhead ≈ 30 ms, the UCI option "Move Overhead"
+    if that is ≤ 0: hard = 0                      # nearly flagged: move at once
 ```
 
 **Control:**
 - **Between passes:** start the next pass only if `elapsed + predicted(next) ≤ soft`. Here `predicted(next)` = duration(last pass) × the larger of (the ratio of the last two passes, 3), and before two passes exist, 0. The D = 2 pre-pass is not used for the prediction.
 - **`movetime`:** the whole time is granted. Passes keep starting while time remains, and the hard limit ends the last one (as-built change, approved 2026-10-22: the prediction rule alone stopped a 1 s `movetime` search after 34 ms).
-- **Within a pass:** at each node entry (the `$78BA` poll point) check the stop flag and, every 1,024 nodes, the clock. If `elapsed ≥ hard` or `stop` was received, set `$BD4C` bit 7 (DEV-007). The search then unwinds exactly as after a key press.
+- **Within a pass:** at each node entry (the `$78BA` poll point) check the stop flag and, at the first node entry and every 64 after it, the clock (as-built change, Phase 4: polling every 1,024 entries and a 1 ms floor on `hard` lost games on the clock at 0.5–2 s + 0–10 ms in self-play). If `elapsed ≥ hard` or `stop` was received, set `$BD4C` bit 7 (DEV-007). The search then unwinds exactly as after a key press.
 - **Single legal root move:** play it after pass 1, unless `go infinite`, `ponder` or a depth/nodes/mate limit asks for more.
 - **Book move:** played immediately (the original returns from the pass at once).
 

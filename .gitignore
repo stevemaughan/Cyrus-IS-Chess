@@ -11,3 +11,4 @@ tests/golden/*.jsonl
 .claude/
 zig-out-safe/
 zig-out-safe2/
+fastchess-out/

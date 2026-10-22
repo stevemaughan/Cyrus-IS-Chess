@@ -202,7 +202,7 @@ The oracle runs the **original code** under SkoolKit's Z80 simulator, driven fro
 
 **Exit:** golden files exist for every Phase 3 row. Regenerating them is bit-identical. Spot checks against the interactive original (e.g. the move played after M at Levels 1 and 2 in 10 positions) agree.
 
-### Phase 3 — Port, bottom-up, each layer proved before the next
+### Phase 3 — Port, bottom-up, each layer proved before the next ✅ (2026-10-22)
 
 **Architecture: behavioural equivalence (owner decision, 2026-10-21).** The port must play the same moves under the same constraints, through the same search and evaluation. The memory layout does **not** need to be preserved. Use clear Zig data structures: board, piece records, move lists, per-ply tables, game record. Where a decision in the original depends on a memory side effect, reproduce the *effect* explicitly and document it at the code site. The known cases:
 
@@ -240,7 +240,21 @@ A Phase 3 unit is done only when its golden tests pass *and* every side effect i
 
 **Exit:** every row is green, `docs/PORT_STATUS.md` is fully verified, and `check-unverified` reports zero.
 
-### Phase 4 — Robustness audit (crashes and illegal moves)
+### Phase 4 — Robustness audit (crashes and illegal moves) ✅ (2026-10-22)
+
+Done; the report is `docs/ROBUSTNESS.md`. In summary:
+- **Perft:** 126 positions, 0 differences.
+- **Self-play:** 10,000 games with 0 failures.
+- **fastchess:** 4,400 games at 0.5+0, 1+0.01 and 10+0.1, with 0 time losses, illegal moves or disconnects.
+- **UCI stress:** 0 failures.
+- **Fixes:**
+  - DEV-012 (the original's draw rules), DEV-013 and DEV-014;
+  - tiny-clock time management;
+  - overlapped Windows pipes (`src/pipe_io.zig`);
+  - PV promotion suffixes.
+- **Still open:** `cutechess-cli`, which moves to Phase 5.
+
+The plan as written before Phase 4 follows.
 
 1. **Capacities.** Review every fixed-size structure in `src/` against `docs/arch/*`: move lists, ply tables, undo stack, game record, pin list. Confirm the bounds the original guards, and fix the known bugs (DEV-001…DEV-004).
 2. **Safety checks.** Build in `Debug` and `ReleaseSafe` for testing. Every safety panic is either a faithful wrap (make it explicit with `+%`/`-%`) or a real bug (classify it, fix it, log it).
@@ -335,6 +349,8 @@ The known items are already in `docs/DEVIATIONS.md`:
 - DEV-006: random sources;
 - DEV-007: abort;
 - DEV-008 to DEV-011: the extension.
+
+Phase 4 added DEV-012 (the original's draw declaration), DEV-013 (exclusion list bounded) and DEV-014 (ply-counter wrap rejected).
 
 In original mode the maximum ply is 7, so deep-search overflow cannot occur. In extended mode every structure that the original sized for ply ≤ 7 is relocated (`docs/EXTENDED_SEARCH.md` §2). Phase 4 must stress it at depth 20 and beyond.
 

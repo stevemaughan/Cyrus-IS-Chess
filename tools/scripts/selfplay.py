@@ -12,6 +12,7 @@ Usage: python tools/scripts/selfplay.py ENGINE.exe --games N [--seed S] [--jobs 
 
 import argparse
 import json
+import logging
 import multiprocessing as mp
 import random
 import time
@@ -47,6 +48,20 @@ def random_config(rng):
     return cfg
 
 
+class Watch(logging.Handler):
+    """Collects engine output that means a bug was papered over: the DEV-005
+    legality fallback or an `info string error`."""
+
+    def __init__(self):
+        super().__init__()
+        self.hits = []
+
+    def emit(self, record):
+        msg = record.getMessage()
+        if 'DEV-005' in msg or 'info string error' in msg:
+            self.hits.append(msg)
+
+
 def opening(rng):
     b = chess.Board()
     for _ in range(rng.randint(0, 8)):
@@ -67,6 +82,10 @@ def play_game(item):
     engines = []
     failures = []
     clocks = [cfg.get('base', 0) / 1000.0 for cfg in cfgs]
+    watch = Watch()
+    log = logging.getLogger('chess.engine')
+    log.addHandler(watch)
+    log.setLevel(logging.DEBUG)
     try:
         for cfg in cfgs:
             e = chess.engine.SimpleEngine.popen_uci([exe], timeout=30)
@@ -101,6 +120,9 @@ def play_game(item):
                 failures.append({'type': 'hang', 'ply': board.ply(), 'fen': board.fen(), 'detail': str(e)})
                 break
             dt = time.perf_counter() - t0
+            if watch.hits:
+                failures.append({'type': 'fallback', 'ply': board.ply(), 'fen': board.fen(), 'detail': watch.hits[0]})
+                break
             if cfg['kind'] == 'clock':
                 clocks[side] -= dt
                 if clocks[side] < 0:
@@ -116,6 +138,7 @@ def play_game(item):
                 break
             board.push(res.move)
     finally:
+        log.removeHandler(watch)
         for e in engines:
             try:
                 e.quit()

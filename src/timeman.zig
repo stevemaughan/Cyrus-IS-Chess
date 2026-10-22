@@ -31,7 +31,8 @@ pub fn budget(c: Clock, overhead_ms: u64) Limits {
     const soft = t / @max(mtg, 1) + c.inc_ms * 3 / 4;
     const third = t / 3;
     const hard_raw = @min(soft * 5, third);
-    const hard = if (hard_raw > overhead_ms) hard_raw - overhead_ms else 1;
+    // Nearly flagged: 0 means "move now" (abort at the first node entry).
+    const hard = if (hard_raw > overhead_ms) hard_raw - overhead_ms else 0;
     return .{ .soft_ms = @min(soft, hard), .hard_ms = hard };
 }
 

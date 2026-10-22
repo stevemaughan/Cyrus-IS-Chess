@@ -86,7 +86,7 @@ At depth 1, 2 and 4 this reproduces the original's Levels 1, 2 and 6–8 exactly
 
 | Parameter | Behaviour |
 |---|---|
-| `wtime btime winc binc movestogo` | `soft = t/mtg + 0.75·inc` (mtg = movestogo or 30). `hard = min(5·soft, t/3) − overhead`. A pass starts only if elapsed + predicted ≤ soft. The prediction is the last pass's duration × max(last growth ratio, 3), or 0 before two passes have been timed. The D = 2 pre-pass is not timed. At `hard` the pass is aborted as by a key press. |
+| `wtime btime winc binc movestogo` | `soft = t/mtg + 0.75·inc` (mtg = movestogo or 30). `hard = min(5·soft, t/3) − overhead`, or 0 when that is not positive: the engine is nearly flagged and moves at the first node entry (with no `info … score`, since no pass completes). A pass starts only if elapsed + predicted ≤ soft. The prediction is the last pass's duration × max(last growth ratio, 3), or 0 before two passes have been timed. The D = 2 pre-pass is not timed. At `hard` the pass is aborted as by a key press. |
 | `movetime T` | soft = hard = T − overhead. Passes keep starting until T is used, and the hard limit aborts the last one. This differs from EXTENDED_SEARCH §4, which would apply the prediction here too; the prediction stopped searches after 3 % of a 1 s movetime. |
 | `depth N` | Passes up to D = N (1 ≤ N ≤ 60), no time limit. |
 | `nodes N` | The search stops at the next node entry once the node count reaches N, and no further pass starts. |
@@ -116,7 +116,7 @@ The original's search can, in rare positions, return a move that leaves its king
 | `score mate −M` | V ≤ 2 (and V ≠ 0): the engine is mated. M = half the PV length. |
 | `nodes` | Calls to make (`$810F`), including the makes of static root scoring. |
 | `nps`, `time` | From the `go`; `time` is in milliseconds. |
-| `pv` | The best line, collected from the alpha raises of the pass. It is truncated at its first illegal move. |
+| `pv` | The best line, collected from the alpha raises of the pass. It is truncated at its first illegal move, and replayed from the root to decide which moves are promotions (a promoted queen's later moves look like promotions from the board after the move). |
 | `currmove`, `currmovenumber` | Printed for each root move after the first second. |
 | `currline` | With `UCI_ShowCurrLine`, once a second: the moves being searched. |
 | `refutation` | With `UCI_ShowRefutations`, after each completed pass: for each refuted root move, the reply that cut it off at ply 2. |
@@ -139,4 +139,7 @@ These figures are from a ReleaseFast build on the development machine, with `Own
 
 - `zig build test`: all unit and golden tests, including the engine flow tests in `src/engine.zig`.
 - `zig build test -Ddeep=true [-Ddeep-positions=N]`: also searches about 30 golden positions at depth 6–8. It checks that no search panics, every result is legal and the move-list area stays within capacity. Use it with `-Doptimize=ReleaseSafe`.
+- `python tools/scripts/selfplay.py ENGINE --games N`: self-play under python-chess with random limits, levels and options; any crash, hang, illegal or missing move, legality fallback or time loss is a failure.
+- `python tools/scripts/uci_stress.py ENGINE`: malformed input, rejected positions, very long games, many-move positions, stop/ponder races, tiny clocks.
+- `tools\scripts\fastchess.bat [tc] [rounds] [concurrency] [overhead] [name]`: fastchess self-play of the ReleaseSafe build with UHO openings; output in `fastchess-out\`.
 - `python tools/scripts/uci_smoke.py [engine]`: drives the built executable. It covers every `go` parameter, ponder and ponderhit, stop, isready during a search, rejected positions, every `Level` value and the display options. It checks for exactly one `bestmove` per `go`.
