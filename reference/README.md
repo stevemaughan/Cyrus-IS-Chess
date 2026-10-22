@@ -65,3 +65,15 @@ The BASIC program, detokenized:
 ## Other files
 
 - `../docs/manual/CyrusISChess.txt` and `CyrusISChess-EN.pdf` are the original instructions, from the same ZXDB entry.
+- `original/48.rom` is the standard Sinclair 48K ROM, copied unmodified from SkoolKit 10.1's bundled resources. Amstrad permits its distribution for emulator use.
+- `snapshots/cyrus48-entry-6000.z80` is the machine state at the program entry point. It was made with SkoolKit 10.1:
+
+  ```
+  tap2sna.py -s 24576 reference/original/CyrusISChess-48k.tzx reference/snapshots/cyrus48-entry-6000.z80
+  ```
+
+  The simulation ran the real BASIC and `CLoad48` loader through the ROM and stopped at `PC=$6000`. Its `$6000–$9FFF` is byte-identical to `extracted/cyrus48-6000-9FFF.bin`.
+
+## Run check
+
+Tracing the snapshot for 3.0 s of emulated time (`trace.py -M 10500000 …`) reaches the idle main loop, with the screen shown in `../docs/images/original-startup.png`. That screen shows `HUMAN v CYRUS`, `YOUR MOVE?`, `LEVEL 2`, `SOUND ON`, `LISTING OFF` and the 48K command bar. This matches the manual's description of the 48K version and its default level.

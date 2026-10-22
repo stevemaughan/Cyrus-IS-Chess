@@ -88,9 +88,9 @@ build.zig / build.zig.zon     ← Zig build; pins the Zig version
 reference/                    ← COMMITTED, IMMUTABLE ground truth
   README.md                   ← provenance, tape layout, loader disassembly
   CHECKSUMS.txt               ← SHA-256 of every reference file
-  original/                   ← CyrusISChess-48k.tzx (canonical), CyrusISChess-16k.tzx, 48.rom (Phase 2)
+  original/                   ← CyrusISChess-48k.tzx (canonical), CyrusISChess-16k.tzx, 48.rom
   extracted/                  ← raw blocks pulled from the canonical TZX (cyrus48-6000-9FFF.bin etc.)
-  snapshots/                  ← post-load snapshot(s) produced for the oracle (hashed)
+  snapshots/                  ← cyrus48-entry-6000.z80 and later oracle snapshots (hashed)
 disasm/
   cyrus.ctl                   ← SkoolKit control file: the annotated disassembly source
   cyrus.skool                 ← generated; regenerate, don't hand-edit
@@ -140,9 +140,11 @@ Install with [Scoop](https://scoop.sh) where available:
 
 ```powershell
 scoop install zig@0.17.0 zls python git      # main bucket
-python -m pip install skoolkit               # disassembler / tracer
+python -m pip install skoolkit               # disassembler / tracer (10.1 used so far)
 scoop bucket add games; scoop install mame   # optional: Spectrum emulation with a strong debugger
 ```
+
+On Windows, a fresh shell can resolve `python` to the Microsoft Store alias rather than Scoop's Python. If that happens, call `~\scoop\apps\python\current\python.exe` directly. SkoolKit's scripts are in `~\scoop\apps\python\current\Scripts\`.
 
 - **Zig 0.17.0** is pinned in `.zigversion` and `build.zig.zon` (`minimum_zig_version`). Zig is pre-1.0 and its standard library changes between releases, especially the I/O / `Writer` / `Reader` interfaces. Check the documentation for *the pinned version* before you use any std API, and do not copy snippets written for other versions. Upgrading Zig is a deliberate, separate commit.
 - **SkoolKit** (`tapinfo.py`, `tap2sna.py`, `sna2ctl.py`, `sna2skool.py`, `skool2asm.py`, `skool2html.py`, `trace.py`): the main disassembly and annotation tool. The control file (`.ctl`) is the long-lived artefact.
@@ -158,13 +160,17 @@ The phases are sequential. Each phase has deliverables and exit criteria, and a 
 
 ### Phase 0 — Acquire and pin the original ✅ (done 2026-10-21)
 
-Canonical release chosen, verified and committed; see `reference/README.md`. Remaining items:
-- Add a 48K Spectrum ROM (`reference/original/48.rom`, SHA-256 in `CHECKSUMS.txt`). Amstrad permits its distribution for emulator use. It is needed for loading and for any ROM routines the engine calls.
-- Load the TZX in an emulator and play a game, to confirm the image runs. Record the title screen and the default level shown.
+Done:
+- Canonical release chosen, verified and committed.
+- 48K ROM added (`reference/original/48.rom`).
+- Post-load snapshot made (`reference/snapshots/cyrus48-entry-6000.z80`).
+- The program traced to its idle main loop, showing Level 2 and the 48K UI (`docs/images/original-startup.png`).
+
+See `reference/README.md` for all of these. Still to do, early in Phase 1: watch the original make at least one move (e.g. press `M` in an emulator) before relying on the snapshot for search work.
 
 ### Phase 1 — Disassemble and document
 
-1. Make a post-load snapshot with `tap2sna.py` (its ROM-loader simulation handles this standard loader) or with an emulator at `$6000`. Commit it under `reference/snapshots/` with a hash.
+1. Start from `reference/snapshots/cyrus48-entry-6000.z80`. Any further snapshots (e.g. "idle at YOUR MOVE?") go under `reference/snapshots/`, with a hash and the exact command that made them.
 2. Generate a first control file (`sna2ctl.py`, using a code map from `trace.py` or emulator execution logging, so that executed bytes are marked as code and the rest as data). Exercise every feature while tracing: all levels, P1–P3, set-up mode, take-back, next-best and promotion.
 3. Annotate iteratively. Find, label and comment, roughly in this order:
    - **Main loop and UI**: keyboard reading, board drawing, move entry, the `ILLEGAL` path, the set-up mode and its legality check, and the level selector. These are not ported, except for the legality check and the level table, but they show how the engine is called.
