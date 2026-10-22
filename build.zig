@@ -37,9 +37,28 @@ pub fn build(b: *std.Build) void {
     b.step("run", "Run the engine").dependOn(&run_cmd.step);
 
     // Unit and golden-file tests (golden tests read tests/golden/*.jsonl.gz).
-    const mod_tests = b.addTest(.{ .root_module = mod });
-    const run_mod_tests = b.addRunArtifact(mod_tests);
-    run_mod_tests.setCwd(b.path("."));
     const test_step = b.step("test", "Run unit and golden-file tests");
-    test_step.dependOn(&run_mod_tests.step);
+    test_step.dependOn(addTestRun(b, mod));
+
+    // Per-unit test steps: each compiles only its unit and that unit's imports,
+    // so units can be developed independently (`zig build test-eval`, ...).
+    inline for (.{ "board", "eval", "book" }) |unit| {
+        const unit_mod = b.createModule(.{
+            .root_source_file = b.path("src/test_" ++ unit ++ ".zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        unit_mod.addAnonymousImport("cyrus_bin", .{
+            .root_source_file = b.path("reference/extracted/cyrus48-6000-9FFF.bin"),
+        });
+        unit_mod.addOptions("build_options", options);
+        b.step("test-" ++ unit, "Run the " ++ unit ++ " unit's tests").dependOn(addTestRun(b, unit_mod));
+    }
+}
+
+fn addTestRun(b: *std.Build, module: *std.Build.Module) *std.Build.Step {
+    const t = b.addTest(.{ .root_module = module });
+    const run = b.addRunArtifact(t);
+    run.setCwd(b.path("."));
+    return &run.step;
 }
