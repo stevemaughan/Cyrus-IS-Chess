@@ -1,0 +1,559 @@
+1. Introduction
+
+CONTENTS
+
+1.	Introduction
+2.	Loading the program
+3.	Starting a game
+4.	The message area
+5.	Correcting moves
+6.	Special moves
+7.	Result of the game
+8.	Interrupting the computer
+9.	New Game
+10.	Levels of playing strength
+11.	Changing sides - playing both sides - demonstration
+12.	Taking back moves 
+13. Replay
+14.	Setting up a position
+15. Chess problems
+16. Colour scheme
+17: Sounds
+18. Printer
+19. Tape
+20. Summary of features
+21.	Summary of commands
+
+The Cyrus program contained on this cassette won a convincing victory in the
+second European Microcomputer Chess Championship. One side of the tape contains
+two copies of a version for use with the 48K Spectrum, with many novel features
+making it particularly convenient and enjoyable to operate. On the other side of
+the tape are two copies of a version with slightly simplified features, suitable
+to be used with either the 48K or the 16K Spectrum.
+
+Except where otherwise stated, the instructions in this manual apply to both
+versions.
+
+2. Loading the Program
+
+Insert the cassette into the tape recorder, then type:
+	LOAD""
+
+Now start the tape ('PLAY'), and press the ENTER key. The process of loading
+will take approximately 1 1/2 minutes for the 16K version, or 2 minutes for the
+48K version. During this time, flashing horizontal lines will be seen at the
+edges of the screen, while in the centre the following message will be
+displayed:
+
+						CYRUS
+				1981 European Champion 
+		(c) 1983 Intelligent Software Ltd.
+						IS - CHESS
+
+If the program fails to load, the volume and/or tone control on the tape
+recorder may need readjusting.
+
+3. Starting a game
+
+Once the program is loaded, a chessboard appears on the screen, with the pieces
+in their starting positions.
+
+On the chessboard you will see one square rapidly flashing -alternating between
+two colours. This flashing square is the cursor which you use for telling the
+computer what moves you are making.
+
+By using the 'direction' keys (<-, etc) you can move the cursor up or down or to
+the right or left, so as to position it wherever you want it. A momentary
+key-press moves the cursor one square in the appropriate direction; to move it
+several squares at once, you may hold the key down. (Notice that when the cursor
+reaches the end of a row of 8 squares, another press of the same direction key
+makes it jump to the opposite end.)
+
+If you want to play White, you are now ready to make your first move. But before
+starting, you may adjust the program's level of playing strength if you wish.
+See Section 10.
+
+Make your move like this:
+(a)	Bring the cursor onto the square occupied by the piece you
+want to move.
+(b)	Press the ENTER key.
+(c)	Transfer the cursor to the square where you want the piece to go.
+(d)	Press ENTER again. Your move is made for you on the board, and Cyrus
+starts computing its reply.
+
+When the computer has finished thinking, it announces its move with a
+characteristic sound signal and plays it on the chessboard. Make your next move
+in the same way as before.
+
+If you want to play Black, you should press the M key to make Cyrus move first.
+Before doing this, however, you may wish to press O, so that Black will be
+playing 'up the board'.
+
+4. The message area
+
+In the space on the left of the chessboard, the computer records the last move
+made, as well as certain other items of information.
+
+When Cyrus is waiting for you to make a move, it displays: YOUR MOVE? While
+computing a move of its own, it displays: LET ME THINK... . If you are playing
+White against the computer, the wording HUMAN v CYRUS is shown at the top of the
+screen. CYRUS v HUMAN means that you are playing Black.
+
+Moves are recorded by algebraic notation. The eight files (or vertical columns
+of squares) are designated by the letters a-h (looking at the board from White's
+end, and reading from left to right). The eight ranks (or horizontal rows) are
+denoted by the numbers 1-8 (starting from the White end). Each square of the
+chessboard is designated by the letter of its file and the number of its rank.
+Two examples should make the system clear:
+
+						2 D2 - D4
+						
+On his second move, White has advanced the pawn in front of his queen. The pawn
+has gone two squares forward, from d2 to d4. Only one move is displayed on the
+screen, so it is Black's turn to move next.
+
+						13 C3 x E5
+							... E7 - H4+
+On move thirteen, a white piece moving from c3 has captured a piece on e5 (a
+capture is denoted by the symbol 'x'). Black has replied by moving a piece from
+e7 to h4. The '+ ' sign shows that this move gives check. Whenever a pair of
+moves are displayed together, it is White's turn to move next.
+
+Note: If you are using the 48K version of the program, the blue area below the
+chessboard contains a list of the commands which are currently available to you.
+For example, when the wording 'take-Back' or `Level' is displayed, this reminds
+you that you may press B or L (i.e. the key corresponding to the letter
+capitalized) in order to take back a move (as in Section 12 below) or change the
+program's level of skill (see Section 10). Once you have read through this
+manual, the list of commands should be clear to you.
+
+5. Correcting moves
+When you press ENTER in the process of making a move, the square where the
+cursor is placed is recorded in the message area, e.g.
+				YOUR MOVE? E2
+
+Should you now transfer the cursor to a square which your piece on e2 cannot
+legally move to, and then re-press ENTER, the message ILLEGAL appears,
+accompanied by a distinctive buzz. Start again to enter a legal move.
+
+Perhaps, after pressing ENTER the first time, you change your mind about which
+piece to move. (Or perhaps you pressed the key by accident.) In that case,
+complete an illegal move (you can do so by re-pressing ENTER before moving the
+cursor). The letter and number following YOUR MOVE? are erased - you are then
+free to start entering another move.
+
+6. Special moves
+
+When making a capture, move your own piece in the usual way, and the captured
+piece is automatically removed from the board. A pawn capture en passant is no
+exception.
+
+To castle, simply enter the king's move; the rook's move is then made for you
+automatically.
+
+If you advance a pawn to the eighth rank, the computer asks: PROMOTE TO? Press
+the key corresponding to the piece you want - Q, R, B or N. (Other keys have the
+same effect as Q. When Cyrus promotes one of its own pawns, it always chooses a
+queen.)
+
+
+7. Result of the game
+
+The computer will display CHECKMATE or STALEMATE in the message area if such a
+situation has come about.
+If both sides move the same pieces backwards and forwards over the same squares
+three times running, the computer announces: DRAWN.
+
+DRAWN is likewise displayed if no pawn is moved and no piece captured during a
+sequence of 50 moves by both players.
+
+8. Interrupting the computer
+
+If you press any key while the display shows LET ME THINK... , Cyrus will stop
+computing and play the move which is best according to its analysis so far.
+
+Notice that if you want to make use of any of the special features described
+below (if you want to conduct a replay, for instance, or alter the colour
+scheme), Cyrus will not accept the instructions while it is computing. So if
+necessary you should first prompt the computer to move, in the way just
+described.
+
+9. New game
+
+At any time, you can break off the game you're playing, and start a new one -
+you needn't wait until the result is announced as in Section 7.
+
+Press G when Cyrus is not computing. (If necessary, first press a key to make
+Cyrus move.) The program asks NEW GAME? and you answer `yes' by pressing Y. The
+screen will then show the starting position again. Note that if you ever press
+the G key by accident you don't automatically erase the current game. In this
+case you can reply to NEW GAME? with 'no' (by pressing N).
+
+10. Levels of playing strength
+
+The Cyrus program can be set to play on any of eight different levels of skill.
+The following table shows the approximate average time it takes for a move on
+each level:
+				Level 	Time
+				1		2 seconds
+				2		5 seconds
+				3		10 seconds
+				4		20 seconds
+				5		30 seconds
+				6		1 minute 15 seconds
+				7		3 minutes
+				8		5 -12 minutes
+
+Note: (a) The program's thinking time can vary considerably with the complexity
+of the position; in some cases it may take much longer than the average
+indicated for the level.
+(b) The 48K version is equipped with 'book knowledge' of many standard opening
+variations; so its first few moves are likely to be made quickly irrespective of
+the level.
+In addition to the 'playing' levels listed above, Cyrus has three `problem'
+levels. When set for Level P1, it will look for a mate in one move; on Level P2
+(or P3), it will try to find a way of forcing mate in two (or three) moves. On
+the 'problem' levels the computer keeps on thinking until it either finds a mate
+or else discovers, by exhaustive analysis, that this is impossible. (For more
+about problem solving, see Section 15.)
+
+The level on which the program is currently playing is always shown in the
+message area. When you first load the program, it is set for Level 2.
+			
+You can change the level anytime when it is your turn to move. To switch to the
+next level higher, press L. If you press the key repeatedly or keep it held
+down, the level will keep changing - up to Level 8, then to Levels P1, P2 and
+P3, then back to Level 1, Level 2 ... and so on. When the level that you want is
+shown on the screen, release the key and resume play. In the course of a game
+you may change the level as often as you like.
+
+
+
+11. Changing sides - playing both sides - demonstration
+
+If you press M instead of making your move, Cyrus will compute a move for the
+side you have been playing, and will expect you to take over the other side.
+
+No doubt you will want the colour that you have taken over to be playing `up the
+board'. To change the orientation of the board (to turn it through 180 degrees),
+press O.
+
+If you wish, you may make a sequence of moves for both sides. (You will do this
+if, for example, you want a game to begin with a particular opening variation.)
+Press E (message: HUMAN v HUMAN), then enter successive moves for White and
+Black in the usual manner. When you reach the position from which you want Cyrus
+to play against you, press M.
+
+If you press D (message: CYRUS v CYRUS), both sides will be played by the
+computer - as a demonstration game. When the game is over, the computer will
+pause for about 20 seconds and then automatically start a new one. To halt the
+demonstration, press any key; after making the next move, Cyrus will then expect
+you to take over the opposing side.
+
+12. Taking back moves
+
+If you want to take back your last move, Cyrus, unlike most human opponents,
+will have no objection. Wait for the computer's reply (or induce it with a
+key-press), then press B. The computer's move is then taken back. Press B again,
+and your own last move is retracted, enabling you to make another one in place
+of it.
+
+If you are using the 48K program, your opponent too can be instructed to play a
+different move in place of the last one. Press N (for the `next best' move).
+Cyrus will then retract the last move played, and, after re-computing, will make
+the move which it considers the best apart from the one just retracted. If you
+then press N again, Cyrus will play the third best move - you can go on like
+this until all the legal moves in the position have been exhausted. (The
+computer then momentarily displays NO MORE MOVES, and once again plays the move
+it considers strongest.)
+
+By repeated pressing of the B key (or by keeping it held down), you can take
+back a whole series of moves made by yourself and the computer. The 48K version
+enables you to retract as many moves as you like (you can go right back to the
+start of the game); with the 16K version, you may retract a sequence of up to 80
+moves (approximately) by both players.
+
+You may take back moves even when one side has been checkmated!
+
+The F key (`forward') has the opposite effect to the B key; it causes a move or
+moves which you have just taken back to be replayed.
+
+The warning in the Note to Section 13 (`Replay') also applies when you are using
+the B and F keys.
+
+13. Replay
+
+It's possible to have all the moves of a game replayed for you automatically;
+this can be done when the game is over, or even while it is still in progress.
+Give the R key a short, light press (message: REPLAYING). The starting position
+reappears, after which the moves are replayed at intervals of about 2 1/2
+seconds.
+
+If you want to examine any position that arose during the game, you can halt the
+replay by pressing any key. After that, you have the following options:
+(a)	With the F key, you can step forward as far as the last position reached
+in the game.
+(b)	Re-pressing R starts the replay all over again.
+(c) You may continue play from the position arrived at in the replay; enter a
+move in the usual manner, or press M (or E, or D).
+
+Note: If you want the replay to be finished, you cannot make use of option (c) -
+since this erases the computer's memory of the moves between the position
+arrived at in the replay and the last position you had reached before the replay
+was started.
+
+Also note that in the case of a long game played with the 16K version, only
+about the last 80 moves can be replayed.
+
+14. Setting up a position
+
+You will need to set up a special position on the board whenever (for example)
+you want the computer to solve a chess problem. For this purpose you may modify
+a position arrived at during play, by adding or removing pieces; or you may
+clear the chessboard and construct the entire position anew. In either case,
+begin by pressing C. The message CHANGE POSITION appears. As long as this
+message is displayed, you may do any of the following things:
+
+(a)	To clear the chessboard, press A ('all-clear').
+(b) To enter a piece on a square, position the cursor on that square and press
+the appropriate 'piece' key - K, Q, R, B, N or P. The new piece replaces any
+other piece that may have been occupying the square.
+(c) To clear an individual square, bring the cursor onto the square and press U
+(`unoccupied').
+
+Beneath the CHANGE POSITION message, you will see the word WHITE or BLACK. As
+long as WHITE is displayed, all pieces entered on the board will be white ones.
+To change over (`toggle') from White to Black or vice versa, press T.
+
+When the position is ready, make sure that the computer knows which side is to
+move next. As long as WHITE is displayed, Cyrus expects White to make the next
+move. Press T if necessary.
+
+Then press E (to exit from `change position' mode). The screen shows: YOUR MOVE?
+You may now resume play against Cyrus (enter a move or press M), start a
+`demonstration' (press D), or make moves for both sides (press E again).
+
+Note: (a) Castling and en passant. If a king or rook has been entered on the
+board in the manner described above, there can be no castling with that piece.
+To construct a position where castling is possible, you can start from the 'new
+game' position (press G and Y first, then C); the king(s) and rook(s) can then
+be left alone while other pieces are removed individually with the U key.
+
+When you resume play after setting up or changing a position, the next move
+cannot be a capture en passant. To construct a position where such a capture is
+possible, set up the immediately preceding position, then play the move which
+permits the capture.
+
+(b) `Take back' and `Replay'. If you have made use of the 'change position'
+function, you will afterwards, of course, be able to take back moves only as far
+as the position you have set up or modified. Also, any subsequent replay will
+begin from that position.
+
+However, if during a game you press C by mistake, you don't automatically erase
+the computer's memory of the preceding moves. Provided you now press E without
+having made any alterations to the position, play can continue as before, and
+the preceding moves may be taken back or replayed in the normal manner.
+
+(c) Illegal positions. Suppose you've set up a position in which a player has
+(e.g.) no king, or a pawn on the back rank, or eight pawns in addition to two
+queens; or the opponent of the player whose move it is has his king in check.
+Cyrus recognizes such a position as illegal (it couldn't have been reached by
+any legal sequence of moves from the starting position), and will not allow play
+to continue from it. When you press E, the message ILLEGAL will appear. Modify
+the position again to make it legal.
+
+(d) Numbering of moves. When you have used the 'change position' function, the
+numbering of subsequent moves begins from 10.
+
+15. Chess problems
+
+The chess problems that appear in magazines and newspapers usually carry some
+such wording as `White to play and mate in three moves'. This means that you
+have to find a move for White which will enable him to give checkmate on his
+third move at the latest, no matter what Black plays in the meantime.
+
+Cyrus can solve problems for mate in 1, 2 or 3 moves. Set up the position as
+described in Section 14. Select Level P1, P2 or P3 as appropriate. Press M.
+
+When the computer makes its move, you may re-set the level (from P3 to P2, or P2
+to P1), then play a move for the defending side. After re-computing, Cyrus will
+make the next move of the solution. After that, you can, if you like, press B
+and enter a different defensive move, to see how Cyrus counters it.
+
+Note: (a) If the computer discovers that it is not possible to force mate within
+the stipulated number of moves, it emits a sound signal and displays CHANGE
+POSITION (giving you the possibilities described in Section 14). In addition,
+the 48K version momentarily announces NO MATE FOUND.
+(b) One of the `rules' of problem composition is that a chess problem must have
+only one solution. The 48K version of the Cyrus program is able to check whether
+alternative solutions to a problem are possible. After a move of the solution
+has been played by the computer, you may press N. Then, after recomputing, Cyrus
+will make an alternative move if it finds a suitable one; if not, it will
+display NO MATE FOUND.
+(c) Cyrus cannot solve any problem that requires an 'underpromotion' (promotion
+of pawn to rook, bishop or knight).
+
+16. Colour scheme
+
+The 48K version of the program allows you a wide choice of colour schemes for
+the chessboard display.
+To alter the colours, press A. The program then asks: COLOUR FOR BLACK PIECE?
+Choose which colour you want the `black' pieces to be, and press the
+corresponding key:
+1 - BLUE 
+2 - RED
+3 - MAGENTA 
+4 - GREEN
+5 - CYAN (pale blue) 
+6 - YELLOW
+7 - WHITE 
+0 - BLACK 
+
+You then have the option of pressing three more `colour' keys, to determine the
+colour of the `white' pieces, the 'black' squares and the `white' squares.
+
+When the screen is displaying (e.g.) COLOUR FOR WHITE PIECE? you may press 8 if
+you want the `white' pieces to remain as they are.
+
+If you press D ('default') after A, the display reverts to the same colour
+scheme as when the program was first loaded.
+
+If the screen is displaying a question about the colours and you decide not to
+make any further changes, press any key (other than 8 or the 'colour' or `shift'
+keys); you can then carry on with the game.
+
+17. Sounds
+
+Press S if you want the program to operate without its sound signals. To switch
+the sounds on again, re-press the same key.
+
+18. Printer
+
+The 48K version of the program can be operated in conjunction with the ZX
+Printer.
+
+If you press P (message: COMMAND?) followed by B, the current position on the
+chessboard is printed.
+
+To print the record of the moves made so far, press P followed by R. (This can
+be done in the middle or at the end of a game. The moves are replayed on the
+screen while the printer records them.) If you have previously used the `change
+position' feature (see Section 14), the printer first prints the position that
+you set up, then the subsequent moves. The printer can be stopped by any
+key-press.
+
+If you want each move in the game to be printed as soon as it is played, press P
+followed by T, so that the message LISTING ON appears. This `listing' function
+can be switched off (`toggled off') by re-pressing P and T.
+
+If you press P by mistake, you should reply to COMMAND? by pressing any key
+other than B, R, T or a `shift' key; play may then continue as before.
+
+19. Tape
+
+If you are using the 48K program, the game may be recorded on tape, then at a
+later date re-loaded into the computer's memory.
+
+Connect the computer to the tape recorder, then press T (message: COMMAND?). To
+enter the game record onto the tape, press S ('save') and start the tape
+recorder; then press any of the computer's keys. Flashing horizontal lines at
+the edge of the screen show that the game is being recorded (the process may be
+halted by pressing BREAK). Afterwards, the display shows YOUR MOVE? and you may
+continue using the program as before.
+
+To load a game record from the tape into the computer's memory, press T followed
+by L, then start the tape recorder. (The process of loading is indicated, again,
+by flashing lines on the border; it may be halted with the BREAK key.) When
+loading is complete, the screen shows the final position of the game record. You
+may now enter a move (if appropriate), or conduct a `replay', or make use of any
+other functions of the program.
+
+If the tape contains unsuitable data, the computer displays TAPE ERROR and
+returns to the same position as before the tape was started.
+
+If you press T but then decide not to use the tape recorder after all, any
+key-press (apart from S, L or a 'shift' key) enables you to resume play.
+
+20. Summary of features
+
+48K Version
+
+SPECIAL MOVES - Castling, en passant, pawn promotion (user may 'under-promote';
+program always promotes to queen)
+RESULT OF GAME - Program recognizes checkmate, stalemate, draw by 50-move rule,
+draw by repetition of consecutive moves
+LEVEL - 8 levels of playing strength
+CHANGING SIDES - User may change sides with computer at any time; White or Black
+may play 'up'
+DEMONSTRATION - Both sides played by computer
+ENTERING CONSECUTIVE MOVES - User may make a sequence of moves for both White
+and Black
+TAKE BACK - Any number of moves may be taken back (and reinstated)
+REPLAY - Entire game may be replayed
+NEXT BEST - Program retracts last move and plays what it considers best apart
+from the move or moves just retracted
+CHANGE POSITION - Board may be cleared, pieces may be added or removed; White or
+Black may play next
+CHESS PROBLEMS - Program solves mate in 1, 2 or 3 moves (excluding
+'underpromotions')
+COLOUR SCHEME - Wide range of colour schemes may be chosen for chessboard
+display
+LIST OF COMMANDS - Screen displays commands currently available
+SOUNDS - May be switched on or off
+PRINTER - Prints current board position, complete game record, or each move as
+played
+TAPE - Game record may be saved on tape and re-entered into computer's memory
+
+16K Version
+
+As 48K version (above): SPECIAL MOVES, RESULT OF GAME, LEVEL, CHANGING SIDES,
+DEMONSTRATION, ENTERING CONSECUTIVE MOVES, CHANGE POSITION, CHESS PROBLEMS,
+SOUNDS
+TAKE BACK - Up to c.160 ply may be taken back (and reinstated)
+REPLAY - last c.160 ply may be replayed
+
+	
+21. Summary of commands
+
+1. For 16K and 48K Versions
+
+Move cursor		<-, ->, etc
+B				TAKE BACK MOVE(S)/ Promote pawn to BISHOP
+C				CHANGE POSITION.............
+					A	ALL CLEAR 
+					B 	BISHOP
+					E	EXIT (resume play)
+					K	KING
+					N	KNIGHT
+					P 	PAWN
+					Q	QUEEN
+					R	ROOK
+					T	TOGGLE (White/Black)
+					U	UNOCCUPIED (clear square)
+D	DEMONSTRATION
+E	ENTER (user plays both sides)
+F	FORWARD, i.e. replay move(s) taken back
+G	NEW GAME (followed by Y	YES, other keys: NO)
+L	SET LEVEL
+M	MOVE (change sides)
+N	Promote pawn to KNIGHT
+O	ORIENTATION (turn board round)
+Q	Promote pawn to QUEEN
+R	REPLAY/Promote pawn to ROOK
+S	SOUND (off/on)
+ENTER	Enter move
+
+2. For 48K Version only
+A	Alter Colours
+		0 BLACK 1 BLUE 2 RED MAGENTA 4 GREEN 5 CYAN 6 YELLOW 7 WHITE 8
+		Colour unchanged
+		D Default colour scheme  (other keys: Resume play)
+N	NEXT BEST MOVE
+P	PRINTER
+		B Print BOARD   R Print MOVE RECORD T TOGGLE (listing on/listing
+		off) (other keys: Resume play)
+T	TAPE
+		L		LOAD game record
+		S		(followed by any key:) SAVE game record
+		BREAK 	Abort (Stop loading or saving)
+		(other keys: Resume play)

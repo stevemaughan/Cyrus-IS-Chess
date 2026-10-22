@@ -1,0 +1,7 @@
+*.tzx binary
+*.tap binary
+*.bin binary
+*.rom binary
+*.z80 binary
+*.szx binary
+*.pdf binary
