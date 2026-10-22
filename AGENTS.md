@@ -162,7 +162,22 @@ The canonical release, ROM and entry snapshot are committed and hashed, and the 
 
 Remaining questions are in `docs/OPEN_QUESTIONS.md`; resolve them as their port units come up.
 
-### Phase 2 — Build the oracle
+### Phase 2 — Build the oracle ✅ (2026-10-22)
+
+Done. The oracle is in `tools/oracle/` (see its README). The golden files are in `tests/golden/`:
+
+| File | Contents |
+|---|---|
+| `search.jsonl.gz` | 2,000 sessions, 4,028 computer moves at every level |
+| `edge.jsonl.gz` | 24 edge positions × 7 levels |
+| `reject.jsonl.gz` | 17 rejection cases |
+| `book.jsonl.gz` | every book position, probed twice |
+| `eval.jsonl.gz` | 30,000 evaluations |
+| `abort.jsonl.gz` | 400 searches interrupted at a random node |
+
+**Every record re-runs identically from its captured state in a fresh machine**, which proves the state format is complete (`verify_state.py`, `verify_eval.py`). Regeneration is byte-identical. The original was driven through its own user interface, so the goldens are the interactive original's behaviour.
+
+The plan as written before Phase 2 follows.
 
 The oracle runs the **original code** under SkoolKit's Z80 simulator, driven from Python, and writes **golden files** that the Zig tests compare against. Python is needed only to regenerate golden files, never to build or test the engine.
 
@@ -193,7 +208,7 @@ The oracle runs the **original code** under SkoolKit's Z80 simulator, driven fro
 
 | Original side effect | What the port must reproduce |
 |---|---|
-| The move generator and evaluation read variables in the board's off-board columns as squares (a/h-file pawn captures, king neighbours) | Whatever those reads would see. If OPEN_QUESTIONS #2 shows the bytes are always 0 during generation and evaluation, treat them as empty squares and record the proof. Otherwise model the specific variables they alias |
+| The move generator and evaluation read variables in the board's off-board columns as squares (a/h-file pawn captures, king neighbours) | An off-board read returns the current value of the variable aliasing that byte (`$BD58`, the root record +0; `$BD7F`, inside the pin list, written by the evaluation itself), and 0 elsewhere. Evidence in `docs/OPEN_QUESTIONS.md` (resolved) |
 | The search reads stale per-ply list pointers left by earlier lines and searches (`L7F20`, `L7EB6`) | Keep per-ply list starts persistent across lines and searches, exactly as the original leaves them |
 | List-size tests done on addresses (high byte of slot(4)/(6) `== $B4`, low byte of slot(5) `≥ $58`) | The equivalent tests on byte offsets from the start of the root list (`docs/EXTENDED_SEARCH.md` §2) |
 | `$BD4E` is written by both the search and the evaluation | The same last-writer-wins value |
@@ -435,7 +450,14 @@ The original has no clock (§3): a level is a fixed search shape.
 
 ### 9.6 Game state between commands
 
-The engine behaves like one original program left running in HUMAN v CYRUS mode.
+The engine behaves like one original program left running in HUMAN v CYRUS mode, operated by the **canonical operator script** below. The oracle's `Session` class (`tools/oracle/oracle.py`) implements the same script against the original. The port must reproduce its state transitions exactly, including the side Cyrus plays (`$BCBE`), the players mode (`$BCC2`) and the sign of `$BCA0`.
+
+- **Loading a position from scratch:**
+  1. New game (G, Y), or set-up (§9.4).
+  2. If there are moves: E (HUMAN v HUMAN), then enter each move. In this mode every turn that falls to Cyrus's side runs SwapSides (`$696A`): `$BCBE` flips and `$BCA0` is negated.
+- **`go`, from a position loaded from scratch:** M (KeyMove `$695D`). First `$BCC2` = 1 if `$BCBE` = 0, else 2. Then SwapSides (`$BCBE` flips, `$BCA0` negated). Then ComputerMove.
+- **Continuing after Cyrus's move with exactly one opponent move:** the move is entered in HUMAN v CYRUS mode, and ComputerMove starts at once. There is no swap; this is the `go`.
+- **Continuing with two or more moves:** E, then the moves, then `go` as M.
 
 - **Engine state persists across commands.** That includes `$BCA0`, `$BCCE`, `$BD4A`, the game record, the book state, and any stale data a later decision reads (§6 Phase 3). Nothing is reset that the original would not reset.
 - **`ucinewgame`** = the original's new game (G, Y). Like the original, it does not reset `$BCA0`.

@@ -4,3 +4,5 @@ zig-out/
 *.pyc
 __pycache__/
 tools/research/*/work/
+# golden files are committed gzip-compressed only
+tests/golden/*.jsonl

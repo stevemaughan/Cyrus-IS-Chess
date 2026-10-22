@@ -7,6 +7,11 @@ Every behavioural difference between the Zig port and the original 48K Cyrus IS 
 
 ## DEV-001: Move-list header count wrong for 127 or more moves
 - **Class:** A/B. **Status:** planned.
+- **Confirmed** in `tests/golden/edge.jsonl.gz`:
+  - Petrović's 218-move position (`R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w`) gets a count of 90;
+  - 138 moves give 10, 147 give 20, 154 give 26, 169 give 41.
+
+  The original searches only the first `count` moves of the list.
 - **Original:** `$79AF–$79B8` computes the header count as `((n+1) mod 128) − 1`. For n = 127 the count becomes 255, so callers walk past the terminator into stale entries (possible illegal moves, a hang or memory corruption). For n ≥ 128 the count is too small, so moves are ignored.
 - **Trigger:** a position with ≥ 127 pseudo-legal moves, which is easy from FEN with several queens, or deep in a search after promotions.
 - **Fix:** store the true count `n` (always < 256).
@@ -15,6 +20,7 @@ Every behavioural difference between the Zig port and the original 48K Cyrus IS 
 
 ## DEV-002: Illegal book move 6…Be7
 - **Class:** B. **Status:** planned.
+- **Confirmed** in `tests/golden/book.jsonl.gz`: probing that position with fresh random inputs, the original plays `f8e7`. The book's continuation of that line cannot be reached by entering moves, because the original rejects 6…Be7 as a human move.
 - **Original:** after 1.e4 e5 2.Nf3 Nf6 3.Nxe5 d6 4.Nf3 Nxe4 5.d4 d5 6.Bb5+, the book's only reply is 6…Be7 (index 14), which leaves Black in check. The original plays it.
 - **Fix:** check the chosen book move for legality. If it is illegal, treat the probe as a miss (`$BCDF := $FF`) and search normally.
 - **Behaviour change where the original worked:** none. This is the only illegal entry among all 2,685 nodes.
@@ -36,7 +42,7 @@ Every behavioural difference between the Zig port and the original 48K Cyrus IS 
 
 ## DEV-005: Root legality filter
 - **Class:** B. **Status:** planned.
-- **Original:** the move generator is pseudo-legal. The root's static scoring (`$7B96`) gives illegal moves score 0, including castling through an attacked square via the king-on-transit-square trick in make (`$81EA`), to be confirmed. Any path that still yields an illegal `bestmove` must not reach the GUI.
+- **Original:** the move generator is pseudo-legal. The root's static scoring (`$7B96`) gives illegal moves score 0, including castling through an attacked square via the king-on-transit-square trick in make (`$81EA`). This was confirmed in Phase 2 (`docs/OPEN_QUESTIONS.md`, resolved). The only illegal move observed is DEV-002's book move. Any path that still yields an illegal `bestmove` must not reach the GUI.
 - **Fix:** AGENTS.md §8.2. Filter the root list with a full legality test before the search, and add a final legality assertion on `bestmove`. Every occurrence found in testing gets its own DEV entry identifying the cause.
 - **Behaviour change where the original worked:** none, if the original's own root scoring already rejects every illegal move. This is to be confirmed in Phase 4.
 
