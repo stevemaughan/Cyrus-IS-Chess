@@ -21,6 +21,7 @@ pub const rng = @import("rng.zig");
 pub const engine = @import("engine.zig");
 pub const uci = @import("uci.zig");
 pub const pipe_io = @import("pipe_io.zig");
+pub const win7_io = @import("win7_io.zig");
 pub const perft = @import("perft.zig");
 
 test {
@@ -44,6 +45,7 @@ test {
     _ = engine;
     _ = uci;
     _ = pipe_io;
+    _ = win7_io;
     _ = perft;
     _ = @import("golden.zig");
     _ = @import("integrity.zig");

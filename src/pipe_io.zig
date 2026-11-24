@@ -5,16 +5,27 @@
 //! Windows passes an OVERLAPPED with its own event and waits for completion,
 //! which is also correct for ordinary synchronous pipes. Consoles, files and
 //! other systems use std's streaming reader and writer.
+//!
+//! The Windows 7 build (win7_io.zig) has no std reader or writer to fall
+//! back on, and std's would not work there in any case: it calls NtReadFile
+//! and NtWriteFile directly, which a Windows 7 console handle does not
+//! accept. In that build consoles and files go through kernel32 as well,
+//! with plain synchronous calls.
 
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 
 const is_windows = builtin.os.tag == .windows;
+const win7 = build_options.win7;
 
-/// A Windows pipe handle used with explicit OVERLAPPED waits.
+/// A Windows handle read and written through kernel32: a pipe, used with
+/// explicit OVERLAPPED waits, or (Windows 7 build only) a console or file,
+/// used synchronously.
 pub const WinPipe = struct {
     handle: *anyopaque,
-    event: *anyopaque,
+    /// The event of a pipe's OVERLAPPED waits; null for a console or file.
+    event: ?*anyopaque,
 
     const Overlapped = extern struct {
         internal: usize = 0,
@@ -37,17 +48,28 @@ pub const WinPipe = struct {
     const error_no_data = 232;
     const error_io_pending = 997;
 
-    /// The pipe behind `handle`, or null if it is not a pipe.
+    /// The pipe behind `handle`, or null if it is not a pipe. In the Windows
+    /// 7 build, any other handle too, for synchronous use.
     pub fn open(handle: *anyopaque) ?WinPipe {
-        if (GetFileType(handle) != file_type_pipe) return null;
+        if (GetFileType(handle) != file_type_pipe) {
+            return if (win7) .{ .handle = handle, .event = null } else null;
+        }
         const ev = CreateEventW(null, 1, 0, null) orelse return null;
         return .{ .handle = handle, .event = ev };
     }
 
     /// Bytes read, 0 at the end of input.
     pub fn read(p: WinPipe, buf: []u8) error{ReadFailed}!usize {
-        var ov: Overlapped = .{ .event = p.event };
         const len = std.math.lossyCast(u32, buf.len);
+        const event = p.event orelse {
+            var n: u32 = 0;
+            if (ReadFile(p.handle, buf.ptr, len, &n, null) == 0) return switch (GetLastError()) {
+                error_broken_pipe, error_handle_eof => 0,
+                else => error.ReadFailed,
+            };
+            return n;
+        };
+        var ov: Overlapped = .{ .event = event };
         if (ReadFile(p.handle, buf.ptr, len, null, &ov) == 0) switch (GetLastError()) {
             error_io_pending => {},
             error_broken_pipe, error_handle_eof => return 0,
@@ -64,8 +86,14 @@ pub const WinPipe = struct {
     pub fn writeAll(p: WinPipe, bytes: []const u8) error{WriteFailed}!void {
         var rest = bytes;
         while (rest.len > 0) {
-            var ov: Overlapped = .{ .event = p.event };
             const len = std.math.lossyCast(u32, rest.len);
+            const event = p.event orelse {
+                var n: u32 = 0;
+                if (WriteFile(p.handle, rest.ptr, len, &n, null) == 0 or n == 0) return error.WriteFailed;
+                rest = rest[n..];
+                continue;
+            };
+            var ov: Overlapped = .{ .event = event };
             if (WriteFile(p.handle, rest.ptr, len, null, &ov) == 0) switch (GetLastError()) {
                 error_io_pending => {},
                 else => return error.WriteFailed,

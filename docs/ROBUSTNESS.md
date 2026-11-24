@@ -10,6 +10,7 @@ AGENTS.md §6 Phase 4: no crashes, hangs, illegal moves or safety panics. This r
 | Self-play, 10,000 games, ReleaseSafe | 941,836 plies, 0 failures (after the fixes in §3.1) |
 | fastchess, ReleaseSafe, UHO openings | 4,400 games at 0.5+0, 1+0.01 and 10+0.1: 0 time losses, illegal moves or disconnects (after the fixes in §7) |
 | After the code review (§9) | all tests, 2,000 self-play games and 2,000 fastchess games repeated |
+| Windows 7 build (§10) | all tests, 1,000 self-play games and 500 fastchess games, 0 failures; run on Windows 11 only |
 | UCI stress (`tools/scripts/uci_stress.py`), ReleaseSafe | 0 failures |
 | UCI smoke (`tools/scripts/uci_smoke.py`) | 41/41 |
 | Unit and golden tests (`zig build test`, `test-engine`, `test-perft`) | all pass |
@@ -179,3 +180,28 @@ The regression afterwards, on the ReleaseSafe build:
 - commands sent mid-search without `stop`.
 
 The review's reproductions are now part of the engine tests and `uci_stress.py`.
+
+## 10. Windows 7 build
+
+The Windows 7 build (`zig build -Dwin7=true`, `docs/UCI.md`) replaces the layer under the engine: threads, locks, clock, and console and file I/O. The search and evaluation are untouched, so this section checks the new layer and that the engine on top of it behaves as before. Both variants were built with Zig 0.17.0 for the baseline CPU: `x86_64-windows.win7` and `x86-windows.win7`.
+
+**Every run below was on Windows 11. Neither executable has been run on Windows 7 itself.** What supports the claim that they start there is the import check in the first row.
+
+| Check | Result |
+|---|---|
+| Imports (`check_win7_imports.py`), ReleaseFast and ReleaseSafe, both variants | 21 imports (22 in ReleaseSafe, with `ExitProcess`): 3 from `ntdll`, the rest from `kernel32`. Each was looked up in export listings by Windows version: none is newer than Windows Vista. The standard build fails the same check, as it should |
+| `zig build test`, standard build | 77 tests pass (the 72 from §9 and 5 new ones for `src/win7_io.zig`); every comparison 0 differences |
+| `zig build test -Dwin7=true`, 64-bit and 32-bit | 77 tests pass in each; every comparison 0 differences |
+| `zig build check-unverified` | passes |
+| Same seeded session (`go depth 7`, then a Level 8 search) on each variant and on the released 1.0.0 executable | identical moves, scores, node counts and PVs |
+| Input and output redirected to files (the synchronous path that consoles also use) | same moves as the standard build |
+| `uci_smoke.py`, ReleaseSafe, each variant | 41/41 |
+| `uci_stress.py`, ReleaseSafe, each variant | 0 failures |
+| Self-play, ReleaseSafe: 500 games on each variant (seeds 4,000,000– and 4,100,000–) | 93,558 plies, 0 failures |
+| fastchess 1+0.01, ReleaseSafe, 64-bit against 32-bit, 500 games | all 500 ended normally (+174 −146 =180): 0 time losses, illegal moves or disconnects. The only warnings are the expected "PV continues after threefold repetition / fifty-move rule" (§7) |
+| Standard build from the same source, `uci_smoke.py` | 41/41 |
+
+Not checked:
+- **Windows 7 itself.** Anything that only shows there (Zig's start-up code, a Windows 7 console) is untested.
+- **An interactive console.** The synchronous read and write code ran against files, not against a console window.
+- **`uci_stress.py` needs Python's UTF-8 mode** (`PYTHONUTF8=1`) under a Python whose default encoding is cp1252: it sends a byte-order mark, which that encoding cannot write. This is a property of the script, not of the engine.

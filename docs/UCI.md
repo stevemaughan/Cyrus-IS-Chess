@@ -137,9 +137,31 @@ These figures are from a ReleaseFast build on the development machine, with `Own
 | start | ≈ 3.1–3.3 M nodes/s | 6 (7 started) | 8 | 0.1 s | 0.9 s | 5.3 s |
 | middlegame | ≈ 2.8–3.1 M nodes/s | 5 (6 started) | 7 | 1.1 s | 6.2 s | 51 s |
 
+## Windows 7 build
+
+The standard Windows executable needs Windows 10 or later. Zig's standard I/O layer (`std.Io.Threaded`) imports `ntdll` functions that first appeared in Windows 8, such as `NtWaitForAlertByThreadId` and `RtlGetSystemTimePrecise`, and Windows will not start a program with an import it cannot resolve.
+
+`zig build -Dwin7=true` (Windows targets only; use `-Dtarget=x86_64-windows.win7` or `x86-windows.win7`) builds the same engine on a small layer of its own, `src/win7_io.zig`, entered through `src/main_win7.zig`. This is platform adaptation only: the search, the evaluation and every UCI command, option and output line are the same code as in the standard build.
+
+What differs underneath:
+
+| | Standard build | Windows 7 build |
+|---|---|---|
+| Mutex and condition variable | `std.Io.Threaded` (thread parking) | One slim lock and one condition variable from `kernel32` |
+| Clock | `std.Io.Threaded` | `QueryPerformanceCounter` |
+| Holding `bestmove` for `infinite` / `ponder` | Polls every 1 ms | Polls with `Sleep(1)`, which Windows may round up to its timer tick (about 15 ms by default) |
+| Worker thread | `std.Thread` (`NtCreateThreadEx`) | `CreateThread` |
+| Pipes | `kernel32`, overlapped (`src/pipe_io.zig`) | The same |
+| Console and redirected files | std's reader and writer (`NtReadFile` / `NtWriteFile`) | `kernel32` `ReadFile` / `WriteFile`, which a Windows 7 console needs |
+| Panic (ReleaseSafe) | Message and stack trace | `panic: <message>` on standard error, exit status 3 |
+| `perft`, `perftsuite` | Included | Not included: `error: PerftToolsAreNotInTheWindows7Build`, exit status 1 |
+| Build modes | All | ReleaseFast and ReleaseSafe; Debug is a compile error, because std's debug output needs `std.Io.Threaded` |
+
+`python tools/scripts/check_win7_imports.py EXE` reads an executable's import table and fails on any function not on its list of Windows 7 exports. The release script and the Windows CI job run it on every Windows 7 build, so a later change cannot quietly bring a Windows 8 import back.
+
 ## Testing
 
-- `zig build test`: all unit and golden tests, including the engine flow tests in `src/engine.zig`.
+- `zig build test`: all unit and golden tests, including the engine flow tests in `src/engine.zig`. On Windows this includes the unit tests of the Windows 7 layer (`src/win7_io.zig`), whichever build is being made.
 - `zig build test -Ddeep=true [-Ddeep-positions=N]`: also searches about 30 golden positions at depth 6–8. It checks that no search panics, every result is legal and the move-list area stays within capacity. Use it with `-Doptimize=ReleaseSafe`.
 - `python tools/scripts/selfplay.py ENGINE --games N`: self-play under python-chess with random limits, levels and options; any crash, hang, illegal or missing move, legality fallback or time loss is a failure.
 - `python tools/scripts/uci_stress.py ENGINE`: malformed input, rejected positions, very long games, many-move positions, stop/ponder races, tiny clocks.

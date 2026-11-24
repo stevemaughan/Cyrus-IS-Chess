@@ -42,3 +42,15 @@ jobs:
       - name: UCI smoke test
         shell: bash
         run: python tools/scripts/uci_smoke.py zig-out/bin/cyrus$([ "$RUNNER_OS" = Windows ] && echo .exe)
+
+      # The Windows 7 build (docs/UCI.md): 64-bit and 32-bit, no import that
+      # Windows 7 lacks, and the same smoke test.
+      - name: Windows 7 builds
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          zig build -Doptimize=ReleaseSafe -Dwin7=true -Dtarget=x86_64-windows.win7 -Dcpu=baseline -p zig-out-win7-x86_64
+          zig build -Doptimize=ReleaseSafe -Dwin7=true -Dtarget=x86-windows.win7 -Dcpu=baseline -p zig-out-win7-x86
+          python tools/scripts/check_win7_imports.py zig-out-win7-x86_64/bin/cyrus.exe zig-out-win7-x86/bin/cyrus.exe
+          python tools/scripts/uci_smoke.py zig-out-win7-x86_64/bin/cyrus.exe
+          python tools/scripts/uci_smoke.py zig-out-win7-x86/bin/cyrus.exe

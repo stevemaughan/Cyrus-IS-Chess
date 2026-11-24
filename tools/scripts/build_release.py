@@ -18,12 +18,18 @@ import sys
 import tarfile
 import zipfile
 
+import check_win7_imports
+
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 
 # (asset name, zig target, zig cpu, extra build options)
 TARGETS = [
     ('windows-x86_64', 'x86_64-windows', 'baseline', []),
     ('windows-arm64', 'aarch64-windows', 'baseline', []),
+    # Windows 7 and 8 (the builds above need Windows 10): src/win7_io.zig in
+    # place of Zig's standard I/O. The 32-bit one also runs on 64-bit Windows.
+    ('windows7-x86_64', 'x86_64-windows.win7', 'baseline', ['-Dwin7=true']),
+    ('windows7-x86', 'x86-windows.win7', 'baseline', ['-Dwin7=true']),
     ('linux-x86_64', 'x86_64-linux-musl', 'baseline', []),
     ('linux-arm64', 'aarch64-linux-musl', 'baseline', []),
     # 32-bit Raspberry Pi OS and other ARMv6/v7 hard-float boards
@@ -82,6 +88,10 @@ def main():
         prefix = os.path.join(dist, 'build', asset)
         build(target, cpu, extra, prefix)
         exe = os.path.join(prefix, 'bin', 'cyrus.exe' if asset.startswith('windows') else 'cyrus')
+        if asset.startswith('windows7'):
+            bad = check_win7_imports.unexpected(exe)
+            if bad:
+                sys.exit(f'{asset}: imports not known to be in Windows 7: {", ".join(bad)}')
         archives.append(package(version, asset, exe, dist))
     with open(os.path.join(dist, 'SHA256SUMS.txt'), 'w', newline='\n') as f:
         for a in archives:

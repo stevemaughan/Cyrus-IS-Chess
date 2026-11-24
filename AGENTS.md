@@ -138,6 +138,7 @@ src/
   main.zig                    ← entry point: the UCI loop, or `perft` / `perftsuite`
   uci.zig, uci_parse.zig      ← UCI input thread, command parsing, the engine's worker thread
   pipe_io.zig                 ← stdin/stdout that also work with overlapped Windows pipes
+  win7_io.zig, main_win7.zig  ← Windows 7 build (`-Dwin7=true`): kernel32 I/O layer and its entry point (docs/UCI.md)
   engine.zig                  ← UCI engine: options, positions and checkpoints, go/limits, info output
   state.zig                   ← engine state: board, piece records, move lists, search tables, game record (§6 Phase 3)
   game.zig                    ← new game, set-up mode, game-move path, FEN/moves → game state, rejection
@@ -158,7 +159,8 @@ src/
   *_test(s).zig, test_*.zig   ← golden-comparison tests and the per-unit test roots
 tools/
   scripts/                    ← simulator driver, ctl generator, disassembly build, book dumper,
-                                UCI smoke/stress tests, self-play, fastchess.bat
+                                UCI smoke/stress tests, self-play, fastchess.bat,
+                                release builder, Windows 7 import check
   research/                   ← Phase 1 probes and verified Python models (see its README)
   oracle/                     ← Phase 2 oracle (Python, SkoolKit simulator) and golden-file generators
 tests/

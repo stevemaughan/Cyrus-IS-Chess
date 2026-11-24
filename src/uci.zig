@@ -8,6 +8,7 @@ const engine_mod = @import("engine.zig");
 const Engine = engine_mod.Engine;
 const uci_parse = @import("uci_parse.zig");
 const pipe_io = @import("pipe_io.zig");
+const win7_io = @import("win7_io.zig");
 
 /// Standard output shared by both threads: one line at a time, flushed.
 const StdOut = struct {
@@ -184,7 +185,10 @@ pub fn run(gpa: std.mem.Allocator, io: std.Io) !void {
     defer e.deinit();
     var worker: Worker = .{ .gpa = gpa, .io = io, .e = e, .out = &out };
     defer worker.queue.deinit(gpa);
-    const thread = try std.Thread.spawn(.{}, Worker.main, .{&worker});
+    const thread = if (win7_io.enabled)
+        try win7_io.Thread.spawn(Worker, Worker.main, &worker)
+    else
+        try std.Thread.spawn(.{}, Worker.main, .{&worker});
     var quit_command = false;
     defer {
         worker.quit(quit_command);

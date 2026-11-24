@@ -13,6 +13,10 @@ pub fn build(b: *std.Build) void {
         .enabled = b.option(bool, "deep", "Run the deep-search robustness test") orelse false,
         .positions = b.option(usize, "deep-positions", "Positions for the deep test (default 30)") orelse 30,
     });
+    // The Windows 7 build: src/win7_io.zig in place of std.Io.Threaded, which
+    // needs Windows 8 (docs/UCI.md, "Windows 7 build"). Windows targets only.
+    const win7 = b.option(bool, "win7", "Build the engine for Windows 7 (Windows targets only)") orelse false;
+    options.addOption(bool, "win7", win7);
 
     // The engine library. The original binary is embedded so that tables and
     // the opening book are taken from it, never retyped.
@@ -31,7 +35,7 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "cyrus",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = b.path(if (win7) "src/main_win7.zig" else "src/main.zig"),
             .target = target,
             .optimize = optimize,
             .strip = strip,

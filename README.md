@@ -164,6 +164,16 @@ cyrus perft 5 rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
 cyrus perftsuite perft.epd 50000000
 ```
 
+### Windows 7
+
+The standard Windows builds need Windows 10 or later, because Zig's standard library does. A separate build is made for Windows 7 and 8, in 64-bit and 32-bit form (the release assets named `windows7-x86_64` and `windows7-x86`; the 32-bit one also runs on 64-bit Windows):
+
+```sh
+zig build -Doptimize=ReleaseFast -Dwin7=true -Dtarget=x86_64-windows.win7   # or x86-windows.win7
+```
+
+It is the same engine and plays the same moves; only the layer underneath (threads, clock, standard input and output) differs, and it leaves out the perft tools. Details are in [`docs/UCI.md`](docs/UCI.md#windows-7-build).
+
 ## UCI options
 
 | Option | Default | Meaning |
