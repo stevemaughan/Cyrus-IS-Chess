@@ -166,13 +166,20 @@ cyrus perftsuite perft.epd 50000000
 
 ### Windows 7
 
-The standard Windows builds need Windows 10 or later, because Zig's standard library does. A separate build is made for Windows 7 and 8, in 64-bit and 32-bit form (the release assets named `windows7-x86_64` and `windows7-x86`; the 32-bit one also runs on 64-bit Windows):
+The standard Windows builds need Windows 10 or later, because Zig's standard library does. The [1.0.0 release](https://github.com/stevemaughan/Cyrus-IS-Chess/releases/tag/v1.0.0) therefore also includes a separate build for Windows 7, in two forms:
+
+| Windows 7 | Download |
+|---|---|
+| 64-bit | `cyrus-is-chess-1.0.0-windows7-x86_64.zip` |
+| 32-bit (also runs on 64-bit Windows) | `cyrus-is-chess-1.0.0-windows7-x86.zip` |
+
+Both have been confirmed working on a Windows 7 PC with an AMD Athlon II processor. They should also suit Windows 8, which has not been tried.
+
+It is the same engine and plays the same moves; only the layer underneath (threads, clock, standard input and output) differs, and it leaves out the perft tools. Details are in [`docs/UCI.md`](docs/UCI.md#windows-7-build). To build it yourself:
 
 ```sh
 zig build -Doptimize=ReleaseFast -Dwin7=true -Dtarget=x86_64-windows.win7   # or x86-windows.win7
 ```
-
-It is the same engine and plays the same moves; only the layer underneath (threads, clock, standard input and output) differs, and it leaves out the perft tools. Details are in [`docs/UCI.md`](docs/UCI.md#windows-7-build).
 
 ## UCI options
 

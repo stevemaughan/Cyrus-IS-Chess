@@ -10,7 +10,7 @@ AGENTS.md §6 Phase 4: no crashes, hangs, illegal moves or safety panics. This r
 | Self-play, 10,000 games, ReleaseSafe | 941,836 plies, 0 failures (after the fixes in §3.1) |
 | fastchess, ReleaseSafe, UHO openings | 4,400 games at 0.5+0, 1+0.01 and 10+0.1: 0 time losses, illegal moves or disconnects (after the fixes in §7) |
 | After the code review (§9) | all tests, 2,000 self-play games and 2,000 fastchess games repeated |
-| Windows 7 build (§10) | all tests, 1,000 self-play games and 500 fastchess games, 0 failures; run on Windows 11 only |
+| Windows 7 build (§10) | all tests, 1,000 self-play games and 500 fastchess games, 0 failures, on Windows 11; both variants then confirmed working on a Windows 7 PC |
 | UCI stress (`tools/scripts/uci_stress.py`), ReleaseSafe | 0 failures |
 | UCI smoke (`tools/scripts/uci_smoke.py`) | 41/41 |
 | Unit and golden tests (`zig build test`, `test-engine`, `test-perft`) | all pass |
@@ -185,7 +185,9 @@ The review's reproductions are now part of the engine tests and `uci_stress.py`.
 
 The Windows 7 build (`zig build -Dwin7=true`, `docs/UCI.md`) replaces the layer under the engine: threads, locks, clock, and console and file I/O. The search and evaluation are untouched, so this section checks the new layer and that the engine on top of it behaves as before. Both variants were built with Zig 0.17.0 for the baseline CPU: `x86_64-windows.win7` and `x86-windows.win7`.
 
-**Every run below was on Windows 11. Neither executable has been run on Windows 7 itself.** What supports the claim that they start there is the import check in the first row.
+**Every run in the table below was on Windows 11.** The import check in the first row is what supported the claim that the executables would start on Windows 7 before anyone had tried.
+
+**On Windows 7 itself:** the user who asked for the build then ran both ReleaseFast executables on a Windows 7 PC with an AMD Athlon II processor, and reported that both worked. Since the 64-bit one ran, that machine has 64-bit Windows 7. No test suite was run there.
 
 | Check | Result |
 |---|---|
@@ -202,6 +204,6 @@ The Windows 7 build (`zig build -Dwin7=true`, `docs/UCI.md`) replaces the layer 
 | Standard build from the same source, `uci_smoke.py` | 41/41 |
 
 Not checked:
-- **Windows 7 itself.** Anything that only shows there (Zig's start-up code, a Windows 7 console) is untested.
-- **An interactive console.** The synchronous read and write code ran against files, not against a console window.
+- **32-bit Windows 7, and Windows 8.** The one Windows 7 machine was 64-bit.
+- **An interactive console.** On Windows 11 the synchronous read and write code ran against files, not against a console window. It is not known whether the Windows 7 run used a console window or only a chess GUI.
 - **`uci_stress.py` needs Python's UTF-8 mode** (`PYTHONUTF8=1`) under a Python whose default encoding is cp1252: it sends a byte-order mark, which that encoding cannot write. This is a property of the script, not of the engine.
